@@ -1,0 +1,33 @@
+name: clipboard
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  platform_test:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: install libx11-dev
+      run: |
+        sudo apt install -y libx11-dev
+      if: ${{ runner.os == 'Linux' }}
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        stable: 'false'
+        go-version: '1.16.0-rc1'
+
+    - name: test
+      run: |
+        go test -v -covermode=atomic ./...
+      # FIXME: on Linux, the action environment failed to use XOpenDisplay successfully.
+      if: ${{ runner.os != 'Linux' }}
