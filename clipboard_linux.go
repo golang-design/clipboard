@@ -4,7 +4,8 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-// +build linux,!darwin
+//go:build linux
+// +build linux
 
 package clipboard
 
@@ -71,7 +72,9 @@ func readc(t string) []byte {
 	return C.GoBytes(unsafe.Pointer(data), C.int(n))
 }
 
-func write(t MIMEType, buf []byte) {
+// write writes the given data to clipboard and
+// returns true if success or false if failed.
+func write(t MIMEType, buf []byte) bool {
 	var s string
 	switch t {
 	case MIMEText:
@@ -97,6 +100,10 @@ func write(t MIMEType, buf []byte) {
 	// should use an atomic version, and use atomic_load.
 	for start == 0 {
 	}
+
+	if start < 0 {
+		return false
+	}
 	// wait until enter event loop
-	return
+	return true
 }

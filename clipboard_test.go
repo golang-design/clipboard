@@ -15,7 +15,6 @@ import (
 )
 
 func TestClipboard(t *testing.T) {
-
 	t.Run("image", func(t *testing.T) {
 		data, err := os.ReadFile("testdata/clipboard.png")
 		if err != nil {

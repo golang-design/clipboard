@@ -27,6 +27,17 @@ clipboard.Write(clipboard.MIMEImage, []byte("image data"))
 clipboard.Read(clipboard.MIMEImage)
 ```
 
+## Notes
+
+To obtain image data to the clipboard, you can:
+
+- On macOS, Ctrl+Shift+Cmd+4
+- On Linux/Ubuntu, Ctrl+Shift+PrintScreen
+
+The package currently supports read/write plain text string or image data
+with PNG format. The other types of data are not supported, as undefined
+behavior.
+
 ## License
 
 GNU GPL-3 Copyright &copy; 2021 The golang.design Initiative Authors, written by [Changkun Ou](https://changkun.de).

@@ -4,14 +4,17 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-// +build !linux,!darwin
+//go:build windows
+// +build windows
 
 package clipboard
 
-func readAll() (buf []byte) {
+func read(t MIMEType) (buf []byte) {
 	panic("unsupported")
 }
 
-func writeAll(buf []byte) {
+// write writes the given data to clipboard and
+// returns true if success or false if failed.
+func write(t MIMEType, buf []byte) bool {
 	panic("unsupported")
 }
