@@ -8,10 +8,11 @@ import "golang.design/x/clipboard"
 
 ## Dependency
 
-- Linux users: `apt install -y libx11-dev`
-- macOS users: no dependency
+- Linux users: require X: `apt install -y libx11-dev` or `xorg-dev`
+- macOS users: require Cgo, no dependency
+- Windows users: unsupported yet
 
-## Usage
+## API Usage
 
 ```go
 // write texts to the clipboard
@@ -25,6 +26,35 @@ clipboard.Write(clipboard.MIMEImage, []byte("image data"))
 
 // read image from the clipboard
 clipboard.Read(clipboard.MIMEImage)
+```
+
+## Command Usage
+
+```sh
+go install golang.design/x/clipboard/cmd/gclip@latest
+```
+
+```
+gclip is a command that provides clipboard interaction.
+
+usage: gclip [-copy|-paste] [-f <file>]
+
+options:
+  -copy
+        copy data to clipboard
+  -f string
+        source or destination to a given file path
+  -paste
+        paste data from clipboard
+
+examples:
+gclip -paste                    paste from clipboard and prints the content
+gclip -paste -f x.txt           paste from clipboard and save as text to x.txt
+gclip -paste -f x.png           paste from clipboard and save as image to x.png
+
+cat x.txt | gclip -copy         copy content from x.txt to clipboard
+gclip -copy -f x.txt            copy content from x.txt to clipboard
+gclip -copy -f x.png            copy x.png as image data to clipboard
 ```
 
 ## Notes
