@@ -4,12 +4,8 @@
 #
 # Written by Changkun Ou <changkun.de>
 
-all: test
+# require apt-get install xvfb
+Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+export DISPLAY=:99.0
 
-test:
-	go test -v -count=1 -covermode=atomic ./...
-
-test-docker:
-	docker build -t golang-design/x/clipboard .
-	docker run --rm --name cb golang-design/x/clipboard
-	docker rmi golang-design/x/clipboard
+go test -v -covermode=atomic ./... 

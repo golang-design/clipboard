@@ -1,3 +1,9 @@
+# Copyright 2021 The golang.design Initiative authors.
+# All rights reserved. Use of this source code is governed
+# by a GNU GPL-3 license that can be found in the LICENSE file.
+#
+# Written by Changkun Ou <changkun.de>
+
 name: clipboard
 
 on:
@@ -13,21 +19,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest] # windows-latest
 
     steps:
-    - name: install libx11-dev
+
+    - name: install xvfb libx11-dev
       run: |
-        sudo apt install -y libx11-dev
+        sudo apt update
+        sudo apt install -y xvfb libx11-dev
       if: ${{ runner.os == 'Linux' }}
+
     - uses: actions/checkout@v2
     - uses: actions/setup-go@v2
       with:
         stable: 'false'
         go-version: '1.16.0-rc1'
 
-    - name: test
+    - name: TestLinux
+      run: |
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        export DISPLAY=:99.0
+        go test -v -covermode=atomic ./...
+      if: ${{ runner.os == 'Linux' }}
+
+    - name: TestOthers
       run: |
         go test -v -covermode=atomic ./...
-      # FIXME: on Linux, the action environment failed to use XOpenDisplay successfully.
-      if: ${{ runner.os != 'Linux' }}

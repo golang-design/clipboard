@@ -30,11 +30,14 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, int *start) {
     }
 
     Window w = XCreateSimpleWindow(d, DefaultRootWindow(d), 0, 0, 1, 1, 0, 0, 0);
-    Atom sel         = XInternAtom(d, "CLIPBOARD", True);
-    Atom atomString  = XInternAtom(d, "UTF8_STRING", True);
-    Atom atomImage   = XInternAtom(d, "image/png", True);
-    Atom targetsAtom = XInternAtom(d, "TARGETS", True);
 
+    // Use False because these may not available for the first time.
+    Atom sel         = XInternAtom(d, "CLIPBOARD", False);
+    Atom atomString  = XInternAtom(d, "UTF8_STRING", False);
+    Atom atomImage   = XInternAtom(d, "image/png", False);
+    Atom targetsAtom = XInternAtom(d, "TARGETS", False);
+
+    // Use True to makesure the requested type is a valid type.
     Atom target = XInternAtom(d, typ, True);
     if (target == None) {
         XCloseDisplay(d);
@@ -149,21 +152,26 @@ unsigned long clipboard_read(char* typ, char **buf) {
     }
 
     Window w = XCreateSimpleWindow(d, DefaultRootWindow(d), 0, 0, 1, 1, 0, 0, 0);
-	Atom sele  = XInternAtom(d, "CLIPBOARD", True);
-	Atom prop = XInternAtom(d, "GOLANG_DESIGN_DATA", False);
+
+    // Use False because these may not available for the first time.
+    Atom sel  = XInternAtom(d, "CLIPBOARD", False);
+    Atom prop = XInternAtom(d, "GOLANG_DESIGN_DATA", False);
+
+    // Use True to makesure the requested type is a valid type.
     Atom target = XInternAtom(d, typ, True);
     if (target == None) {
         XCloseDisplay(d);
-        return -1;
+        return -2;
     }
-    XConvertSelection(d, sele, target, prop, w, CurrentTime);
+
+    XConvertSelection(d, sel, target, prop, w, CurrentTime);
     XEvent event;
     for (;;) {
         XNextEvent(d, &event);
         if (event.type != SelectionNotify) continue;
         break;
     }
-    unsigned long n = read_data((XSelectionEvent *)&event.xselection, sele, prop, target, buf);
+    unsigned long n = read_data((XSelectionEvent *)&event.xselection, sel, prop, target, buf);
     XCloseDisplay(d);
     return n;
 }
