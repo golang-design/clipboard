@@ -56,6 +56,31 @@ func TestClipboard(t *testing.T) {
 	})
 }
 
+func TestClipboardMultipleWrites(t *testing.T) {
+	data, err := os.ReadFile("testdata/clipboard.png")
+	if err != nil {
+		t.Fatalf("failed to read gold file: %v", err)
+	}
+	clipboard.Write(clipboard.MIMEImage, data)
+
+	data = []byte("golang.design/x/clipboard")
+	clipboard.Write(clipboard.MIMEText, data)
+
+	b := clipboard.Read(clipboard.MIMEImage)
+	if b != nil {
+		t.Fatalf("read clipboard that should store text data as image should fail, but got: %d", len(b))
+	}
+
+	b = clipboard.Read(clipboard.MIMEText)
+	if b == nil {
+		t.Fatalf("read clipboard that should store text data as text should success, got: nil")
+	}
+
+	if !reflect.DeepEqual(data, b) {
+		t.Fatalf("read data from clipbaord is inconsistent with previous write, want %s, got: %s", string(data), string(b))
+	}
+}
+
 func BenchmarkClipboard(b *testing.B) {
 
 	b.Run("text", func(b *testing.B) {
