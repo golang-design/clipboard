@@ -1,6 +1,6 @@
 # clipboard [![PkgGoDev](https://pkg.go.dev/badge/golang.design/x/clipboard)](https://pkg.go.dev/golang.design/x/clipboard) ![](https://changkun.de/urlstat?mode=github&repo=golang-design/clipboard) ![clipboard](https://github.com/golang-design/clipboard/workflows/clipboard/badge.svg?branch=main)
 
-clipboard access with Go
+cross platform clipboard access in Go
 
 ```go
 import "golang.design/x/clipboard"
@@ -29,14 +29,13 @@ clipboard.Read(clipboard.MIMEImage)
 
 ## Notes
 
-To obtain image data to the clipboard, you can:
+To put image data to system clipboard, you could:
 
-- On macOS, Ctrl+Shift+Cmd+4
-- On Linux/Ubuntu, Ctrl+Shift+PrintScreen
+- On macOS, using shortcut Ctrl+Shift+Cmd+4
+- On Linux/Ubuntu, using Ctrl+Shift+PrintScreen
 
-The package currently supports read/write plain text string or image data
-with PNG format. The other types of data are not supported, as undefined
-behavior.
+The package supports read/write plain text or PNG encoded image data.
+The other types of data are not supported yet, i.e. undefined behavior.
 
 ## License
 
