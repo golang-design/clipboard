@@ -34,13 +34,19 @@ func Read(t MIMEType) []byte {
 	return read(t)
 }
 
-// Write writes the given buffer to the clipboard.
+// Write writes a given buffer to the clipboard.
+// The returned channel can receive an empty struct as signal that
+// indicates the clipboard has been overwritten from this write.
 //
 // If the MIME type indicates an image, then the given buf assumes
 // the image data is PNG encoded.
-func Write(t MIMEType, buf []byte) {
+func Write(t MIMEType, buf []byte) <-chan struct{} {
 	lock.Lock()
 	defer lock.Unlock()
 
-	write(t, buf)
+	ok, changed := write(t, buf)
+	if !ok {
+		return nil
+	}
+	return changed
 }

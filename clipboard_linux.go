@@ -74,7 +74,7 @@ func readc(t string) []byte {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t MIMEType, buf []byte) bool {
+func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
 	var s string
 	switch t {
 	case MIMEText:
@@ -84,6 +84,7 @@ func write(t MIMEType, buf []byte) bool {
 	}
 
 	var start C.int
+	done := make(chan struct{}, 1)
 
 	go func() { // surve as a daemon until the ownership is terminated.
 		runtime.LockOSThread()
@@ -94,6 +95,8 @@ func write(t MIMEType, buf []byte) bool {
 		if ok != C.int(0) {
 			fmt.Fprintf(os.Stderr, "write failed with status: %d\n", int(ok))
 		}
+		done <- struct{}{}
+		close(done)
 	}()
 
 	// FIXME: this should race with the code on the C side, start
@@ -102,8 +105,8 @@ func write(t MIMEType, buf []byte) bool {
 	}
 
 	if start < 0 {
-		return false
+		return false, nil
 	}
 	// wait until enter event loop
-	return true
+	return true, done
 }

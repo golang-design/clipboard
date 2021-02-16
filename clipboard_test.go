@@ -7,9 +7,11 @@
 package clipboard_test
 
 import (
+	"context"
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"golang.design/x/clipboard"
 )
@@ -61,10 +63,26 @@ func TestClipboardMultipleWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read gold file: %v", err)
 	}
-	clipboard.Write(clipboard.MIMEImage, data)
+	chg := clipboard.Write(clipboard.MIMEImage, data)
 
 	data = []byte("golang.design/x/clipboard")
 	clipboard.Write(clipboard.MIMEText, data)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Fatalf("failed to receive clipboard change notification")
+	case _, ok := <-chg:
+		if !ok {
+			t.Fatalf("change channel is closed before receiving the changed clipboard data")
+		}
+	}
+	_, ok := <-chg
+	if ok {
+		t.Fatalf("changed channel should be closed after receiving the notification")
+	}
 
 	b := clipboard.Read(clipboard.MIMEImage)
 	if b != nil {

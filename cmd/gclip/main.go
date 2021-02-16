@@ -97,7 +97,8 @@ func cpy() error {
 		}
 	}
 
-	clipboard.Write(t, b)
+	// Wait until clipboard content has been changed.
+	<-clipboard.Write(t, b)
 	return nil
 }
 

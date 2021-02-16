@@ -54,3 +54,7 @@ int clipboard_write_image(const void *bytes, NSInteger n) {
 	}
 	return 0;
 }
+
+NSInteger clipboard_change_count() {
+	return [[NSPasteboard generalPasteboard] changeCount];
+}

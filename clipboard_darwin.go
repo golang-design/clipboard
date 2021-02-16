@@ -19,9 +19,13 @@ unsigned int clipboard_read_string(void **out);
 unsigned int clipboard_read_image(void **out);
 int clipboard_write_string(const void *bytes, NSInteger n);
 int clipboard_write_image(const void *bytes, NSInteger n);
+NSInteger clipboard_change_count();
 */
 import "C"
-import "unsafe"
+import (
+	"time"
+	"unsafe"
+)
 
 func read(t MIMEType) (buf []byte) {
 	var (
@@ -46,9 +50,8 @@ func read(t MIMEType) (buf []byte) {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t MIMEType, buf []byte) bool {
+func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
 	var ok C.int
-
 	switch t {
 	case MIMEText:
 		ok = C.clipboard_write_string(unsafe.Pointer(&buf[0]),
@@ -58,7 +61,22 @@ func write(t MIMEType, buf []byte) bool {
 			C.NSInteger(len(buf)))
 	}
 	if ok != 0 {
-		return false
+		return false, nil
 	}
-	return true
+
+	// use unbuffered data to prevent goroutine leak
+	changed := make(chan struct{}, 1)
+	cnt := C.long(C.clipboard_change_count())
+	go func() {
+		for {
+			time.Sleep(time.Second)
+			cur := C.long(C.clipboard_change_count())
+			if cnt != cur {
+				changed <- struct{}{}
+				close(changed)
+				return
+			}
+		}
+	}()
+	return true, changed
 }
