@@ -14,6 +14,8 @@ import "golang.design/x/clipboard"
 
 ## API Usage
 
+Quick start:
+
 ```go
 // write texts to the clipboard
 clipboard.Write(clipboard.MIMEText, []byte("text data"))
@@ -28,13 +30,34 @@ clipboard.Write(clipboard.MIMEImage, []byte("image data"))
 clipboard.Read(clipboard.MIMEImage)
 ```
 
+In addition, the `clipboard.Write` API returns a channel that
+can receive an empty struct as a signal that indicates the
+corresponding write call to the clipboard is outdated, meaning
+the clipboard has been overwritten by others and the previously
+written data is lost. For instance:
+
+```go
+changed := clipboard.Write(clipboard.MIMEText, []byte("text data"))
+
+select {
+case <-changed:
+      println(`"text data" is no longer available from clipboard.`)
+}
+```
+
+You can ignore the reutrning channel if you don't need this type of notification.
+
 ## Command Usage
 
-```sh
-go install golang.design/x/clipboard/cmd/gclip@latest
+`gclip` command offers the ability to interact with the system clipboard
+from the shell. To install:
+
+```bash
+$ go install golang.design/x/clipboard/cmd/gclip@latest
 ```
 
-```
+```bash
+$ gclip
 gclip is a command that provides clipboard interaction.
 
 usage: gclip [-copy|-paste] [-f <file>]
@@ -57,12 +80,20 @@ gclip -copy -f x.txt            copy content from x.txt to clipboard
 gclip -copy -f x.png            copy x.png as image data to clipboard
 ```
 
-## Notes
+If `-copy` is used, the command will exit when the data is no longer
+available from the clipboard. You can always send the command to the
+background using a shell `&` operator, for example:
 
-To put image data to system clipboard, you could:
+```bash
+$ cat x.txt | gclip -copy &
+```
 
-- On macOS, using shortcut Ctrl+Shift+Cmd+4
-- On Linux/Ubuntu, using Ctrl+Shift+PrintScreen
+## Additional Notes
+
+In general, to put image data to system clipboard, there are system level shortcuts:
+
+- On macOS, using shortcut `Ctrl+Shift+Cmd+4`
+- On Linux/Ubuntu, using `Ctrl+Shift+PrintScreen`
 
 The package supports read/write plain text or PNG encoded image data.
 The other types of data are not supported yet, i.e. undefined behavior.
