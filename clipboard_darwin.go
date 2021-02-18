@@ -27,15 +27,15 @@ import (
 	"unsafe"
 )
 
-func read(t MIMEType) (buf []byte) {
+func read(t Format) (buf []byte) {
 	var (
 		data unsafe.Pointer
 		n    C.uint
 	)
 	switch t {
-	case MIMEText:
+	case FmtText:
 		n = C.clipboard_read_string(&data)
-	case MIMEImage:
+	case FmtImage:
 		n = C.clipboard_read_image(&data)
 	}
 	if data == nil {
@@ -50,13 +50,13 @@ func read(t MIMEType) (buf []byte) {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
+func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	var ok C.int
 	switch t {
-	case MIMEText:
+	case FmtText:
 		ok = C.clipboard_write_string(unsafe.Pointer(&buf[0]),
 			C.NSInteger(len(buf)))
-	case MIMEImage:
+	case FmtImage:
 		ok = C.clipboard_write_image(unsafe.Pointer(&buf[0]),
 			C.NSInteger(len(buf)))
 	}

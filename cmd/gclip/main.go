@@ -67,16 +67,16 @@ func main() {
 }
 
 func cpy() error {
-	t := clipboard.MIMEText
+	t := clipboard.FmtText
 	ext := filepath.Ext(*file)
 
 	switch ext {
 	case ".png":
-		t = clipboard.MIMEImage
+		t = clipboard.FmtImage
 	case ".txt":
 		fallthrough
 	default:
-		t = clipboard.MIMEText
+		t = clipboard.FmtText
 	}
 
 	var (
@@ -105,9 +105,9 @@ func cpy() error {
 func pst() (err error) {
 	var b []byte
 
-	b = clipboard.Read(clipboard.MIMEText)
+	b = clipboard.Read(clipboard.FmtText)
 	if b == nil {
-		b = clipboard.Read(clipboard.MIMEImage)
+		b = clipboard.Read(clipboard.FmtImage)
 	}
 
 	if *file != "" && b != nil {

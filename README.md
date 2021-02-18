@@ -18,16 +18,16 @@ Quick start:
 
 ```go
 // write texts to the clipboard
-clipboard.Write(clipboard.MIMEText, []byte("text data"))
+clipboard.Write(clipboard.FmtText, []byte("text data"))
 
 // read texts from the clipboard
-clipboard.Read(clipboard.MIMEText)
+clipboard.Read(clipboard.FmtText)
 
 // write image to the clipboard, assume image bytes are png encoded.
-clipboard.Write(clipboard.MIMEImage, []byte("image data"))
+clipboard.Write(clipboard.FmtImage, []byte("image data"))
 
 // read image from the clipboard
-clipboard.Read(clipboard.MIMEImage)
+clipboard.Read(clipboard.FmtImage)
 ```
 
 In addition, the `clipboard.Write` API returns a channel that
@@ -37,7 +37,7 @@ the clipboard has been overwritten by others and the previously
 written data is lost. For instance:
 
 ```go
-changed := clipboard.Write(clipboard.MIMEText, []byte("text data"))
+changed := clipboard.Write(clipboard.FmtText, []byte("text data"))
 
 select {
 case <-changed:

@@ -10,15 +10,15 @@ import (
 	"sync"
 )
 
-// MIMEType represents the MIME type of clipboard data.
-type MIMEType int
+// Format represents the MIME type of clipboard data.
+type Format int
 
 // All sorts of supported clipboard data
 const (
-	// MIMEText indicates plain text MIME format
-	MIMEText MIMEType = iota
-	// MIMEImage indicates image/png MIME format
-	MIMEImage
+	// FmtText indicates plain text MIME format
+	FmtText Format = iota
+	// FmtImage indicates image/png MIME format
+	FmtImage
 )
 
 // Due to the limitation on operating systems (such as darwin),
@@ -27,7 +27,7 @@ const (
 var lock = sync.Mutex{}
 
 // Read reads and returns the clipboard data.
-func Read(t MIMEType) []byte {
+func Read(t Format) []byte {
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -40,7 +40,7 @@ func Read(t MIMEType) []byte {
 //
 // If the MIME type indicates an image, then the given buf assumes
 // the image data is PNG encoded.
-func Write(t MIMEType, buf []byte) <-chan struct{} {
+func Write(t Format, buf []byte) <-chan struct{} {
 	lock.Lock()
 	defer lock.Unlock()
 

@@ -22,14 +22,14 @@ func TestClipboard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to read gold file: %v", err)
 		}
-		clipboard.Write(clipboard.MIMEImage, data)
+		clipboard.Write(clipboard.FmtImage, data)
 
-		b := clipboard.Read(clipboard.MIMEText)
+		b := clipboard.Read(clipboard.FmtText)
 		if b != nil {
 			t.Fatalf("read clipboard that stores image data as text should fail, but got len: %d", len(b))
 		}
 
-		b = clipboard.Read(clipboard.MIMEImage)
+		b = clipboard.Read(clipboard.FmtImage)
 		if b == nil {
 			t.Fatalf("read clipboard that stores image data as image should success, but got: nil")
 		}
@@ -41,13 +41,13 @@ func TestClipboard(t *testing.T) {
 
 	t.Run("text", func(t *testing.T) {
 		data := []byte("golang.design/x/clipboard")
-		clipboard.Write(clipboard.MIMEText, data)
+		clipboard.Write(clipboard.FmtText, data)
 
-		b := clipboard.Read(clipboard.MIMEImage)
+		b := clipboard.Read(clipboard.FmtImage)
 		if b != nil {
 			t.Fatalf("read clipboard that stores text data as image should fail, but got len: %d", len(b))
 		}
-		b = clipboard.Read(clipboard.MIMEText)
+		b = clipboard.Read(clipboard.FmtText)
 		if b == nil {
 			t.Fatal("read clipboard taht stores text data as text should success, but got: nil")
 		}
@@ -63,10 +63,10 @@ func TestClipboardMultipleWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read gold file: %v", err)
 	}
-	chg := clipboard.Write(clipboard.MIMEImage, data)
+	chg := clipboard.Write(clipboard.FmtImage, data)
 
 	data = []byte("golang.design/x/clipboard")
-	clipboard.Write(clipboard.MIMEText, data)
+	clipboard.Write(clipboard.FmtText, data)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
@@ -84,12 +84,12 @@ func TestClipboardMultipleWrites(t *testing.T) {
 		t.Fatalf("changed channel should be closed after receiving the notification")
 	}
 
-	b := clipboard.Read(clipboard.MIMEImage)
+	b := clipboard.Read(clipboard.FmtImage)
 	if b != nil {
 		t.Fatalf("read clipboard that should store text data as image should fail, but got: %d", len(b))
 	}
 
-	b = clipboard.Read(clipboard.MIMEText)
+	b = clipboard.Read(clipboard.FmtText)
 	if b == nil {
 		t.Fatalf("read clipboard that should store text data as text should success, got: nil")
 	}
@@ -107,8 +107,8 @@ func BenchmarkClipboard(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			clipboard.Write(clipboard.MIMEText, data)
-			_ = clipboard.Read(clipboard.MIMEText)
+			clipboard.Write(clipboard.FmtText, data)
+			_ = clipboard.Read(clipboard.FmtText)
 		}
 	})
 }

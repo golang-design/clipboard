@@ -45,11 +45,11 @@ func init() {
 	}
 }
 
-func read(t MIMEType) (buf []byte) {
+func read(t Format) (buf []byte) {
 	switch t {
-	case MIMEText:
+	case FmtText:
 		return readc("UTF8_STRING")
-	case MIMEImage:
+	case FmtImage:
 		return readc("image/png")
 	}
 	return nil
@@ -74,12 +74,12 @@ func readc(t string) []byte {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
+func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	var s string
 	switch t {
-	case MIMEText:
+	case FmtText:
 		s = "UTF8_STRING"
-	case MIMEImage:
+	case FmtImage:
 		s = "image/png"
 	}
 
