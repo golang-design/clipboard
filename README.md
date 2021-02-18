@@ -1,6 +1,6 @@
 # clipboard [![PkgGoDev](https://pkg.go.dev/badge/golang.design/x/clipboard)](https://pkg.go.dev/golang.design/x/clipboard) ![](https://changkun.de/urlstat?mode=github&repo=golang-design/clipboard) ![clipboard](https://github.com/golang-design/clipboard/workflows/clipboard/badge.svg?branch=main)
 
-cross platform clipboard access in Go
+cross platform clipboard package in Go
 
 ```go
 import "golang.design/x/clipboard"
@@ -107,4 +107,4 @@ The other types of data are not supported yet, i.e. undefined behavior.
 
 ## License
 
-GNU GPL-3 Copyright &copy; 2021 The golang.design Initiative Authors, written by [Changkun Ou](https://changkun.de).
+MIT | &copy; 2021 The golang.design Initiative Authors, written by [Changkun Ou](https://changkun.de).
