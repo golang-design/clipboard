@@ -23,6 +23,7 @@ NSInteger clipboard_change_count();
 */
 import "C"
 import (
+	"context"
 	"time"
 	"unsafe"
 )
@@ -77,6 +78,7 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	cnt := C.long(C.clipboard_change_count())
 	go func() {
 		for {
+			// not sure if we are too slow or the user too fast :)
 			time.Sleep(time.Second)
 			cur := C.long(C.clipboard_change_count())
 			if cnt != cur {
@@ -87,4 +89,31 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 		}
 	}()
 	return true, changed
+}
+
+func watch(ctx context.Context, t Format) <-chan []byte {
+	recv := make(chan []byte, 1)
+	go func() {
+		// not sure if we are too slow or the user too fast :)
+		ti := time.NewTicker(time.Second)
+		lastCount := C.long(C.clipboard_change_count())
+		for {
+			select {
+			case <-ctx.Done():
+				close(recv)
+				return
+			case <-ti.C:
+				this := C.long(C.clipboard_change_count())
+				if lastCount != this {
+					b := Read(t)
+					if b == nil {
+						continue
+					}
+					recv <- b
+					lastCount = this
+				}
+			}
+		}
+	}()
+	return recv
 }

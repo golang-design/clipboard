@@ -29,9 +29,12 @@ unsigned long clipboard_read(char* typ, char **out);
 */
 import "C"
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 	"unsafe"
 )
 
@@ -75,6 +78,7 @@ func readc(t string) []byte {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (bool, <-chan struct{}) {
+
 	var s string
 	switch t {
 	case FmtText:
@@ -114,4 +118,29 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	}
 	// wait until enter event loop
 	return true, done
+}
+
+func watch(ctx context.Context, t Format) <-chan []byte {
+	recv := make(chan []byte, 1)
+	go func() {
+		ti := time.NewTicker(time.Second)
+		last := read(t)
+		for {
+			select {
+			case <-ctx.Done():
+				close(recv)
+				return
+			case <-ti.C:
+				b := read(t)
+				if b == nil {
+					continue
+				}
+				if bytes.Compare(last, b) != 0 {
+					recv <- b
+					last = b
+				}
+			}
+		}
+	}()
+	return recv
 }

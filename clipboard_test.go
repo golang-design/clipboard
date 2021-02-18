@@ -7,6 +7,7 @@
 package clipboard_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"reflect"
@@ -131,6 +132,51 @@ func TestClipboardWriteEmpty(t *testing.T) {
 		t.Fatalf("write empty string to clipboard should read empty string, got: `%v`", string(got))
 	}
 }
+
+func TestClipboardWatch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	// clear clipboard
+	clipboard.Write(clipboard.FmtText, []byte(""))
+	lastRead := clipboard.Read(clipboard.FmtText)
+
+	changed := clipboard.Watch(ctx, clipboard.FmtText)
+
+	want := []byte("golang.design/x/clipboard")
+	go func(ctx context.Context) {
+		t := time.NewTicker(time.Millisecond * 500)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				clipboard.Write(clipboard.FmtText, want)
+			}
+		}
+	}(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			if string(lastRead) == "" {
+				t.Fatalf("clipboard watch never receives a notification")
+			}
+			return
+		case data, ok := <-changed:
+			if !ok {
+				if string(lastRead) == "" {
+					t.Fatalf("clipboard watch never receives a notification")
+				}
+				return
+			}
+			if bytes.Compare(data, want) != 0 {
+				t.Fatalf("received data from watch mismatch, want: %v, got %v", string(want), string(data))
+			}
+			lastRead = data
+		}
+	}
+}
+
 func BenchmarkClipboard(b *testing.B) {
 
 	b.Run("text", func(b *testing.B) {

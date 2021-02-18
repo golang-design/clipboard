@@ -7,6 +7,7 @@
 package clipboard // import "golang.design/x/clipboard"
 
 import (
+	"context"
 	"sync"
 )
 
@@ -49,4 +50,10 @@ func Write(t Format, buf []byte) <-chan struct{} {
 		return nil
 	}
 	return changed
+}
+
+// Watch returns a receive-only channel that received the clipboard data
+// if any changes of clipboard data in the desired format happends.
+func Watch(ctx context.Context, t Format) <-chan []byte {
+	return watch(ctx, t)
 }
