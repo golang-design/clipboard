@@ -17,16 +17,13 @@ import "golang.design/x/clipboard"
 Quick start:
 
 ```go
-// write texts to the clipboard
+// write/read text format data of the clipboard
 clipboard.Write(clipboard.FmtText, []byte("text data"))
-
-// read texts from the clipboard
 clipboard.Read(clipboard.FmtText)
 
-// write image to the clipboard, assume image bytes are png encoded.
+// write/read image format data of the clipboard, assume
+// image bytes are png encoded.
 clipboard.Write(clipboard.FmtImage, []byte("image data"))
-
-// read image from the clipboard
 clipboard.Read(clipboard.FmtImage)
 ```
 
@@ -45,7 +42,17 @@ case <-changed:
 }
 ```
 
-You can ignore the reutrning channel if you don't need this type of notification.
+You can ignore the reutrning channel if you don't need this type of
+notification. Furthermore, when you need more than just knowing whether
+clipboard data is changed, use the watcher API:
+
+```go
+ch := clipboard.Watch(context.TODO(), clipboard.FmtText)
+for data := range ch {
+      // print out clipboard data whenever it is changed
+      println(string(data))
+}
+```
 
 ## Command Usage
 

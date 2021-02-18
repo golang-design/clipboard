@@ -54,6 +54,8 @@ func Write(t Format, buf []byte) <-chan struct{} {
 
 // Watch returns a receive-only channel that received the clipboard data
 // if any changes of clipboard data in the desired format happends.
+//
+// The returned channel will be closed if the given context is canceled.
 func Watch(ctx context.Context, t Format) <-chan []byte {
 	return watch(ctx, t)
 }
