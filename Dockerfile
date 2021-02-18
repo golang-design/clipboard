@@ -4,7 +4,7 @@
 #
 # Written by Changkun Ou <changkun.de>
 
-FROM golang:1.16rc1
+FROM golang:1.16
 RUN apt-get update && apt-get install -y \
       xvfb libx11-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*

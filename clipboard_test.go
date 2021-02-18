@@ -119,6 +119,18 @@ func TestClipboardConcurrentRead(t *testing.T) {
 	<-done
 }
 
+func TestClipboardWriteEmpty(t *testing.T) {
+	chg1 := clipboard.Write(clipboard.FmtText, nil)
+	if got := clipboard.Read(clipboard.FmtText); got != nil {
+		t.Fatalf("write nil to clipboard should read nil, got: %v", string(got))
+	}
+	clipboard.Write(clipboard.FmtText, []byte(""))
+	<-chg1
+
+	if got := clipboard.Read(clipboard.FmtText); string(got) != "" {
+		t.Fatalf("write empty string to clipboard should read empty string, got: `%v`", string(got))
+	}
+}
 func BenchmarkClipboard(b *testing.B) {
 
 	b.Run("text", func(b *testing.B) {

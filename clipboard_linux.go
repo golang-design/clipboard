@@ -91,7 +91,12 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 		cs := C.CString(s)
 		defer C.free(unsafe.Pointer(cs))
 
-		ok := C.clipboard_write(cs, (*C.uchar)(unsafe.Pointer(&buf[0])), C.size_t(len(buf)), &start)
+		var ok C.int
+		if len(buf) == 0 {
+			ok = C.clipboard_write(cs, nil, 0, &start)
+		} else {
+			ok = C.clipboard_write(cs, (*C.uchar)(unsafe.Pointer(&(buf[0]))), C.size_t(len(buf)), &start)
+		}
 		if ok != C.int(0) {
 			fmt.Fprintf(os.Stderr, "write failed with status: %d\n", int(ok))
 		}

@@ -54,11 +54,19 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	var ok C.int
 	switch t {
 	case FmtText:
-		ok = C.clipboard_write_string(unsafe.Pointer(&buf[0]),
-			C.NSInteger(len(buf)))
+		if len(buf) == 0 {
+			ok = C.clipboard_write_string(unsafe.Pointer(nil), 0)
+		} else {
+			ok = C.clipboard_write_string(unsafe.Pointer(&buf[0]),
+				C.NSInteger(len(buf)))
+		}
 	case FmtImage:
-		ok = C.clipboard_write_image(unsafe.Pointer(&buf[0]),
-			C.NSInteger(len(buf)))
+		if len(buf) == 0 {
+			ok = C.clipboard_write_image(unsafe.Pointer(nil), 0)
+		} else {
+			ok = C.clipboard_write_image(unsafe.Pointer(&buf[0]),
+				C.NSInteger(len(buf)))
+		}
 	}
 	if ok != 0 {
 		return false, nil
