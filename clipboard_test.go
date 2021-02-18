@@ -99,6 +99,26 @@ func TestClipboardMultipleWrites(t *testing.T) {
 	}
 }
 
+func TestClipboardConcurrentRead(t *testing.T) {
+	// This test check that concurrent read/write to the clipboard does
+	// not cause crashes on some specific platform, such as macOS.
+	done := make(chan bool, 2)
+	go func() {
+		defer func() {
+			done <- true
+		}()
+		clipboard.Read(clipboard.FmtText)
+	}()
+	go func() {
+		defer func() {
+			done <- true
+		}()
+		clipboard.Read(clipboard.FmtImage)
+	}()
+	<-done
+	<-done
+}
+
 func BenchmarkClipboard(b *testing.B) {
 
 	b.Run("text", func(b *testing.B) {
