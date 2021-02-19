@@ -8,7 +8,17 @@ package clipboard // import "golang.design/x/clipboard"
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
 	"sync"
+)
+
+var (
+	debug               = true
+	errUnavailable      = errors.New("clipboard unavailable")
+	errUnsupported      = errors.New("unsupported format")
+	errInvalidOperation = errors.New("invalid operation")
 )
 
 // Format represents the MIME type of clipboard data.
@@ -32,7 +42,14 @@ func Read(t Format) []byte {
 	lock.Lock()
 	defer lock.Unlock()
 
-	return read(t)
+	buf, err := read(t)
+	if err != nil {
+		if debug {
+			fmt.Fprintf(os.Stderr, "read clipboard err: %v\n", err)
+		}
+		return nil
+	}
+	return buf
 }
 
 // Write writes a given buffer to the clipboard.
@@ -45,8 +62,11 @@ func Write(t Format, buf []byte) <-chan struct{} {
 	lock.Lock()
 	defer lock.Unlock()
 
-	ok, changed := write(t, buf)
-	if !ok {
+	changed, err := write(t, buf)
+	if err != nil {
+		if debug {
+			fmt.Fprintf(os.Stderr, "write to clipboard err: %v\n", err)
+		}
 		return nil
 	}
 	return changed

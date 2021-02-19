@@ -48,36 +48,39 @@ func init() {
 	}
 }
 
-func read(t Format) (buf []byte) {
+func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtText:
 		return readc("UTF8_STRING")
 	case FmtImage:
 		return readc("image/png")
 	}
-	return nil
+	return nil, errUnsupported
 }
 
-func readc(t string) []byte {
+func readc(t string) ([]byte, error) {
 	ct := C.CString(t)
 	defer C.free(unsafe.Pointer(ct))
 
 	var data *C.char
 	n := C.clipboard_read(ct, &data)
 	if data == nil {
-		return nil
+		return nil, errUnavailable
 	}
 	defer C.free(unsafe.Pointer(data))
-	if n <= 0 {
-		return nil
+	switch {
+	case n < 0:
+		return nil, errUnavailable
+	case n == 0:
+		return nil, nil
+	default:
+		return C.GoBytes(unsafe.Pointer(data), C.int(n)), nil
 	}
-
-	return C.GoBytes(unsafe.Pointer(data), C.int(n))
 }
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t Format, buf []byte) (bool, <-chan struct{}) {
+func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 	var s string
 	switch t {
@@ -114,24 +117,31 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	}
 
 	if start < 0 {
-		return false, nil
+		return nil, errInvalidOperation
 	}
 	// wait until enter event loop
-	return true, done
+	return done, nil
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	go func() {
 		ti := time.NewTicker(time.Second)
-		last := read(t)
+		last, err := read(t)
+		if err != nil {
+			return
+		}
 		for {
 			select {
 			case <-ctx.Done():
 				close(recv)
 				return
 			case <-ti.C:
-				b := read(t)
+				b, err := read(t)
+				if err != nil {
+					close(recv)
+					return
+				}
 				if b == nil {
 					continue
 				}

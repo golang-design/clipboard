@@ -89,7 +89,7 @@ type bitmapV5HEADER struct {
 }
 
 // FIXME: return detailed error would be useful.
-func read(t Format) (buf []byte) {
+func read(t Format) (buf []byte, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -105,28 +105,28 @@ func read(t Format) (buf []byte) {
 
 	r, _, err := isClipboardFormatAvailable.Call(param)
 	if r == 0 {
-		return nil
+		return nil, errUnavailable
 	}
 
 	r, _, err = openClipboard.Call()
 	if r == 0 {
-		return nil
+		return nil, err
 	}
 	defer closeClipboard.Call()
 
 	f, _, err := enumClipboardFormats.Call(0)
 	if f == 0 {
-		return nil
+		return nil, err
 	}
 
 	h, _, err := getClipboardData.Call(param)
 	if h == 0 {
-		return nil
+		return nil, err
 	}
 
 	l, _, err := gLock.Call(h)
 	if l == 0 {
-		return nil
+		return nil, err
 	}
 
 	switch param {
@@ -134,12 +134,12 @@ func read(t Format) (buf []byte) {
 		b := readImage(unsafe.Pointer(l))
 		img, err := bmp.Decode(bytes.NewReader(b))
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		var buf bytes.Buffer
 		err = png.Encode(&buf, img)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		return buf.Bytes()
 		// return readImage(unsafe.Pointer(l))
@@ -149,10 +149,9 @@ func read(t Format) (buf []byte) {
 		s := syscall.UTF16ToString((*[1 << 20]uint16)(unsafe.Pointer(l))[:])
 		r, _, err = gUnlock.Call(h)
 		if r == 0 {
-			fmt.Fprintf(os.Stderr, "failed to unlock clipboard: %v\n", err)
-			return nil
+			return nil, err
 		}
-		return bytes.NewBufferString(s).Bytes()
+		return bytes.NewBufferString(s).Bytes(), nil
 	}
 }
 
@@ -192,21 +191,19 @@ func readImage(p unsafe.Pointer) []byte {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t Format, buf []byte) (bool, <-chan struct{}) {
+func write(t Format, buf []byte) (<-chan struct{}, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	r, _, err := openClipboard.Call(0)
 	if r == 0 {
-		fmt.Fprintf(os.Stderr, "failed to open clipboard: %v\n", err)
-		return false, nil
+		return nil, fmt.Errorf("failed to open clipboard: %w", err)
 	}
 	defer closeClipboard.Call()
 
 	r, _, err = emptyClipboard.Call(0)
 	if r == 0 {
-		fmt.Fprintf(os.Stderr, "failed to clear clipboard: %v\n", err)
-		return false, nil
+		return nil, fmt.Errorf("failed to clear clipboard: %w", err)
 	}
 
 	// FIXME: encode buf to bitmap format depends on the format
@@ -216,8 +213,7 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	// been allocated using the function with the GMEM_MOVEABLE flag.
 	h, _, err := gAlloc.Call(gmemMoveable, uintptr(len(data)*int(unsafe.Sizeof(data[0]))))
 	if h == 0 {
-		fmt.Fprintf(os.Stderr, "failed to alloc clipboard data buffer: %v\n", err)
-		return false, nil
+		return nil, fmt.Errorf("failed to alloc clipboard data buffer: %w", err)
 	}
 	defer func() {
 		if h != 0 {
@@ -227,21 +223,19 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 
 	l, _, err := gLock.Call(h)
 	if l == 0 {
-		fmt.Fprintf(os.Stderr, "failed to lock alloc handle: %v\n", err)
-		return false, nil
+		return nil, fmt.Errorf("failed to lock alloc handle: %w", err)
 	}
 
 	r, _, err = lstrcpy.Call(l, uintptr(unsafe.Pointer(&data[0])))
 	if r == 0 {
-		fmt.Fprintf(os.Stderr, "failed to convert data: %v\n", err)
-		return false, nil
+		fmt.Fprintf(os.Stderr,
+		return nil, fmt.Errorf("failed to convert data: %w", err)
 	}
 
 	r, _, err = gUnlock.Call(h)
 	if r == 0 {
 		if err.(syscall.Errno) != 0 {
-			fmt.Fprintf(os.Stderr, "failed to unlock clipboard lock: %v\n", err)
-			return false, nil
+			return nil, fmt.Errorf("failed to unlock clipboard lock: %w", err)
 		}
 	}
 
@@ -257,8 +251,7 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 
 	r, _, err = setClipboardData.Call(param, h)
 	if r == 0 {
-		fmt.Fprintf(os.Stderr, "failed to set data to clipboard: %v\n", err)
-		return false, nil
+		return nil, fmt.Errorf("failed to set data to clipboard: %w", err)
 	}
 	h = 0 // don't do global free if setclipboarddata works
 
@@ -268,7 +261,7 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 		done <- struct{}{}
 	}()
 
-	return true, done
+	return done, nil
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
