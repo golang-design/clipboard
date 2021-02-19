@@ -8,9 +8,9 @@ import "golang.design/x/clipboard"
 
 ## Dependency
 
-- Linux users: require X: `apt install -y libx11-dev` or `xorg-dev`
+- Linux users: require X window system, install `libx11-dev` or `xorg-dev`
 - macOS users: require Cgo, no dependency
-- Windows users: unsupported yet
+- Windows users: no Cgo, no dependency
 
 ## API Usage
 
@@ -99,8 +99,9 @@ $ cat x.txt | gclip -copy &
 
 In general, to put image data to system clipboard, there are system level shortcuts:
 
-- On macOS, using shortcut `Ctrl+Shift+Cmd+4`
-- On Linux/Ubuntu, using `Ctrl+Shift+PrintScreen`
+- On macOS, use `Ctrl+Shift+Cmd+4`
+- On Linux/Ubuntu, use `Ctrl+Shift+PrintScreen`
+- On Windows, use `Shift+Win+s`
 
 The package supports read/write plain text or PNG encoded image data.
 The other types of data are not supported yet, i.e. undefined behavior.

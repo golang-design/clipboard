@@ -11,11 +11,17 @@ package clipboard
 
 import (
 	"bytes"
+	"context"
+	"encoding/binary"
 	"fmt"
+	"image/png"
 	"os"
+	"reflect"
 	"runtime"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/image/bmp"
 )
 
 // Interacting with Clipboard on Windows:
@@ -23,8 +29,13 @@ import (
 
 const (
 	cfUnicodeText = 13
-	cfBitmap      = 2
-	gmemMoveable  = 0x0002
+	cfHdrop       = 15 // Files
+	cfDibv5       = 17 // ?
+	cfBitmap      = 2  // Win+PrintScreen
+	// Screenshot taken from special shortcut is in different format (why??), see:
+	// https://jpsoft.com/forums/threads/detecting-clipboard-format.5225/
+	cfDataObject = 49161 // Shift+Win+s
+	gmemMoveable = 0x0002
 )
 
 var (
@@ -34,6 +45,8 @@ var (
 	emptyClipboard             = user32.MustFindProc("EmptyClipboard")
 	getClipboardData           = user32.MustFindProc("GetClipboardData")
 	setClipboardData           = user32.MustFindProc("SetClipboardData")
+	isClipboardFormatAvailable = user32.MustFindProc("IsClipboardFormatAvailable")
+	enumClipboardFormats       = user32.MustFindProc("EnumClipboardFormats")
 	getClipboardSequenceNumber = user32.MustFindProc("GetClipboardSequenceNumber")
 
 	kernel32 = syscall.NewLazyDLL("kernel32")
@@ -44,25 +57,66 @@ var (
 	lstrcpy  = kernel32.NewProc("lstrcpyW")
 )
 
-func read(t MIMEType) (buf []byte) {
+type bitmapV5HEADER struct {
+	BiSize          uint32 //
+	BiWidth         int32
+	BiHeight        int32
+	BiPlanes        uint16
+	BiBitCount      uint16
+	BiCompression   uint32
+	BiSizeImage     uint32
+	BiXPelsPerMeter int32
+	BiYPelsPerMeter int32
+	BiClrUsed       uint32
+	BiClrImportant  uint32
+	BV4RedMask      uint32
+	BV4GreenMask    uint32
+	BV4BlueMask     uint32
+	BV4AlphaMask    uint32
+	BV4CSType       uint32
+	BV4Endpoints    struct {
+		CiexyzRed, CiexyzGreen, CiexyzBlue struct {
+			CiexyzX, CiexyzY, CiexyzZ int32 // FXPT2DOT30
+		}
+	}
+	BV4GammaRed    uint32
+	BV4GammaGreen  uint32
+	BV4GammaBlue   uint32
+	BV5Intent      uint32
+	BV5ProfileData uint32
+	BV5ProfileSize uint32
+	BV5Reserved    uint32
+}
+
+// FIXME: return detailed error would be useful.
+func read(t Format) (buf []byte) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	r, _, err := openClipboard.Call(0)
+	var param uintptr
+	switch t {
+	case FmtImage:
+		param = cfDibv5
+	case FmtText:
+		fallthrough
+	default:
+		param = cfUnicodeText
+	}
+
+	r, _, err := isClipboardFormatAvailable.Call(param)
 	if r == 0 {
-		fmt.Fprintf(os.Stderr, "failed to open clipboard: %v\n", err)
+		return nil
+	}
+
+	r, _, err = openClipboard.Call()
+	if r == 0 {
 		return nil
 	}
 	defer closeClipboard.Call()
 
-	var param uintptr
-	switch t {
-	case MIMEImage:
-		param = cfBitmap
-	case MIMEText:
-		fallthrough
-	default:
-		param = cfUnicodeText
+	f, _, err := enumClipboardFormats.Call(0)
+	if f == 0 {
+		return nil
 	}
 
 	h, _, err := getClipboardData.Call(param)
@@ -72,23 +126,73 @@ func read(t MIMEType) (buf []byte) {
 
 	l, _, err := gLock.Call(h)
 	if l == 0 {
-		fmt.Fprintf(os.Stderr, "failed to lock clipboard: %v\n", err)
 		return nil
 	}
 
-	s := syscall.UTF16ToString((*[1 << 20]uint16)(unsafe.Pointer(l))[:])
-	r, _, err = gUnlock.Call(h)
-	if r == 0 {
-		fmt.Fprintf(os.Stderr, "failed to unlock clipboard: %v\n", err)
-		return nil
+	switch param {
+	case cfDibv5:
+		b := readImage(unsafe.Pointer(l))
+		img, err := bmp.Decode(bytes.NewReader(b))
+		if err != nil {
+			return nil
+		}
+		var buf bytes.Buffer
+		err = png.Encode(&buf, img)
+		if err != nil {
+			return nil
+		}
+		return buf.Bytes()
+		// return readImage(unsafe.Pointer(l))
+	case cfUnicodeText:
+		fallthrough
+	default:
+		s := syscall.UTF16ToString((*[1 << 20]uint16)(unsafe.Pointer(l))[:])
+		r, _, err = gUnlock.Call(h)
+		if r == 0 {
+			fmt.Fprintf(os.Stderr, "failed to unlock clipboard: %v\n", err)
+			return nil
+		}
+		return bytes.NewBufferString(s).Bytes()
 	}
+}
 
-	return bytes.NewBufferString(s).Bytes()
+// readImage reads image from given handle
+//
+// ref: https://github.com/YanxinTang/clipboard-online/blob/ab60d1b00dc8e50b7aaa20bc40dd97b6ef1fce3e/utils/clipboard.go#L116
+func readImage(p unsafe.Pointer) []byte {
+	header := (*bitmapV5HEADER)(p)
+	if header.BiSizeImage == 0 { // just for safety
+		header.BiSizeImage = 4 * uint32(header.BiWidth) * uint32(header.BiHeight)
+	}
+	siz := 14 + header.BiSize + header.BiSizeImage
+	ret := make([]byte, siz)
+	binary.LittleEndian.PutUint16(ret[0:], 0x4d42) // BM
+	binary.LittleEndian.PutUint32(ret[2:], siz)
+	binary.LittleEndian.PutUint16(ret[6:], 0)
+	binary.LittleEndian.PutUint16(ret[8:], 0)
+	binary.LittleEndian.PutUint32(ret[10:], 14+header.BiSize)
+
+	var data []byte
+	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+	sh.Data = uintptr(p)
+	sh.Cap = int(header.BiSize + header.BiSizeImage)
+	sh.Len = int(header.BiSize + header.BiSizeImage)
+
+	// If compression is set to BITFIELDS, but the bitmask is set to the
+	// default bitmask that would be used if compression was set to 0,
+	// we can continue as if compression was 0. See:
+	// https://github.com/golang/image/blob/4410531fe0302c24ddced794ec5760f25dd22066/bmp/reader.go#L177
+	if header.BiCompression == 3 && header.BV4RedMask == 0xff0000 &&
+		header.BV4GreenMask == 0xff00 && header.BV4BlueMask == 0xff {
+		header.BiCompression = 0 // BI_RGB
+	}
+	copy(ret[14:], data[:])
+	return ret
 }
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
+func write(t Format, buf []byte) (bool, <-chan struct{}) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -105,6 +209,7 @@ func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
 		return false, nil
 	}
 
+	// FIXME: encode buf to bitmap format depends on the format
 	data := syscall.StringToUTF16(string(buf))
 
 	// Doc: If the hMem parameter identifies a memory object, the object must have
@@ -142,9 +247,9 @@ func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
 
 	var param uintptr
 	switch t {
-	case MIMEImage:
+	case FmtImage:
 		param = cfBitmap
-	case MIMEText:
+	case FmtText:
 		fallthrough
 	default:
 		param = cfUnicodeText
@@ -157,10 +262,16 @@ func write(t MIMEType, buf []byte) (bool, <-chan struct{}) {
 	}
 	h = 0 // don't do global free if setclipboarddata works
 
+	// TODO: listener
 	done := make(chan struct{}, 1)
 	go func() {
 		done <- struct{}{}
 	}()
 
 	return true, done
+}
+
+func watch(ctx context.Context, t Format) <-chan []byte {
+	// TODO:
+	panic("unimplemented")
 }

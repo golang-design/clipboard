@@ -9,6 +9,7 @@ package clipboard_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -16,6 +17,15 @@ import (
 
 	"golang.design/x/clipboard"
 )
+
+func TestXX(t *testing.T) {
+	b := clipboard.Read(clipboard.FmtImage)
+	if b != nil {
+		os.WriteFile("x.png", b, os.ModePerm)
+	} else {
+		fmt.Println(string(clipboard.Read(clipboard.FmtText)))
+	}
+}
 
 func TestClipboard(t *testing.T) {
 	t.Run("image", func(t *testing.T) {
