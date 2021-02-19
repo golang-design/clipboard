@@ -9,7 +9,6 @@ package clipboard_test
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -19,12 +18,11 @@ import (
 )
 
 func TestXX(t *testing.T) {
-	b := clipboard.Read(clipboard.FmtImage)
-	if b != nil {
-		os.WriteFile("x.png", b, os.ModePerm)
-	} else {
-		fmt.Println(string(clipboard.Read(clipboard.FmtText)))
+	data, err := os.ReadFile("testdata/clipboard.png")
+	if err != nil {
+		t.Fatalf("failed to read gold file: %v", err)
 	}
+	clipboard.Write(clipboard.FmtImage, data)
 }
 
 func TestClipboard(t *testing.T) {
@@ -171,6 +169,7 @@ func TestClipboardWatch(t *testing.T) {
 			if string(lastRead) == "" {
 				t.Fatalf("clipboard watch never receives a notification")
 			}
+			t.Log(string(lastRead))
 			return
 		case data, ok := <-changed:
 			if !ok {

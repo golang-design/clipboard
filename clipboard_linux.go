@@ -95,6 +95,8 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 	go func() { // surve as a daemon until the ownership is terminated.
 		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
 		cs := C.CString(s)
 		defer C.free(unsafe.Pointer(cs))
 
