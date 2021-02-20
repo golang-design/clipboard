@@ -139,11 +139,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				b, err := read(t)
-				if err != nil {
-					close(recv)
-					return
-				}
+				b := Read(t)
 				if b == nil {
 					continue
 				}
