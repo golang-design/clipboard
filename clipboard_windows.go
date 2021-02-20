@@ -102,8 +102,8 @@ func writeText(buf []byte) error {
 // readImage reads the clipboard and returns PNG encoded image data
 // if presents. The caller is responsible for opening/closing the
 // clipboard before calling this function.
-func readImage(format uintptr) ([]byte, error) {
-	hMem, _, err := getClipboardData.Call(format)
+func readImage() ([]byte, error) {
+	hMem, _, err := getClipboardData.Call(cFmtDIBV5)
 	if hMem == 0 {
 		return nil, err
 	}
@@ -234,21 +234,7 @@ func read(t Format) (buf []byte, err error) {
 	var format uintptr
 	switch t {
 	case FmtImage:
-		pngFmtString, err := syscall.UTF16PtrFromString("PNG")
-		if err != nil {
-			return nil, err
-		}
-		cFmtPNG, _, err := registerClipboardFormatA.Call(uintptr(unsafe.Pointer(pngFmtString)))
-		if cFmtPNG == 0 {
-			return nil, err
-		}
-		// check if clipboard is avaliable for the requested format
-		r, _, err := isClipboardFormatAvailable.Call(cFmtPNG)
-		if r == 0 {
-			format = cFmtDIBV5
-		} else {
-			format = cFmtPNG
-		}
+		format = cFmtDIBV5
 	case FmtText:
 		fallthrough
 	default:
@@ -261,7 +247,7 @@ func read(t Format) (buf []byte, err error) {
 		return nil, errUnavailable
 	}
 
-	// try open clipboard
+	// try again until open clipboard successed
 	for {
 		r, _, _ = openClipboard.Call()
 		if r == 0 {
@@ -273,7 +259,7 @@ func read(t Format) (buf []byte, err error) {
 
 	switch format {
 	case cFmtDIBV5:
-		return readImage(format)
+		return readImage()
 	case cFmtUnicodeText:
 		fallthrough
 	default:
@@ -284,40 +270,42 @@ func read(t Format) (buf []byte, err error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	for {
-		r, _, _ := openClipboard.Call(0)
-		if r == 0 {
-			continue
-		}
-		break
-	}
-	defer closeClipboard.Call()
-
-	// var param uintptr
-	switch t {
-	case FmtImage:
-		err := writeImage(buf)
-		if err != nil {
-			return nil, err
-		}
-	case FmtText:
-		fallthrough
-	default:
-		// param = cFmtUnicodeText
-		err := writeText(buf)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+	errch := make(chan error)
 	changed := make(chan struct{}, 1)
-	// FIXME: it looks like GetClipboardSequenceNumber can produce false report.
-	// where cnt could be less than cur.
-	cnt, _, _ := getClipboardSequenceNumber.Call()
 	go func() {
+		// make sure GetClipboardSequenceNumber happens with OpenClipboard
+		// on the same thread.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		for {
+			r, _, _ := openClipboard.Call(0)
+			if r == 0 {
+				continue
+			}
+			break
+		}
+		defer closeClipboard.Call()
+
+		// var param uintptr
+		switch t {
+		case FmtImage:
+			err := writeImage(buf)
+			if err != nil {
+				errch <- err
+				return
+			}
+		case FmtText:
+			fallthrough
+		default:
+			// param = cFmtUnicodeText
+			err := writeText(buf)
+			if err != nil {
+				errch <- err
+				return
+			}
+		}
+		cnt, _, _ := getClipboardSequenceNumber.Call()
+		errch <- nil
 		for {
 			time.Sleep(time.Second)
 			cur, _, _ := getClipboardSequenceNumber.Call()
@@ -328,6 +316,10 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			}
 		}
 	}()
+	err := <-errch
+	if err != nil {
+		return nil, err
+	}
 	return changed, nil
 }
 
@@ -360,12 +352,11 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 
 const (
 	cFmtUnicodeText = 13
-	cFmtHdrop       = 15 // Files
-	cFmtDIBV5       = 17 // ?
-	cFmtBitmap      = 2  // Win+PrintScreen
+	cFmtDIBV5       = 17
+	cFmtBitmap      = 2 // Win+PrintScreen
 	// Screenshot taken from special shortcut is in different format (why??), see:
 	// https://jpsoft.com/forums/threads/detecting-clipboard-format.5225/
-	cFmtDataObject = 49161 // Shift+Win+s
+	cFmtDataObject = 49161 // Shift+Win+s, returned from enumClipboardFormats
 	gmemMoveable   = 0x0002
 )
 
