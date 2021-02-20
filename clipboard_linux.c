@@ -141,7 +141,7 @@ unsigned long read_data(XSelectionEvent *sev, Atom sel, Atom prop, Atom target, 
     return size * sizeof(char);
 }
 
-// clipboard_read reads the clipboard selection in given mime type typ.
+// clipboard_read reads the clipboard selection in given format typ.
 // the readed bytes is written into buf and returns the size of the buffer.
 //
 // The caller of this function should responsible for the free of the buf.

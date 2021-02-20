@@ -93,10 +93,10 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 func watch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
+	// not sure if we are too slow or the user too fast :)
+	ti := time.NewTicker(time.Second)
+	lastCount := C.long(C.clipboard_change_count())
 	go func() {
-		// not sure if we are too slow or the user too fast :)
-		ti := time.NewTicker(time.Second)
-		lastCount := C.long(C.clipboard_change_count())
 		for {
 			select {
 			case <-ctx.Done():

@@ -114,9 +114,9 @@ func readImage() ([]byte, error) {
 	defer gUnlock.Call(hMem)
 
 	// inspect header information
-	info := (*bitmapV5HEADER)(unsafe.Pointer(p))
+	info := (*bitmapV5Header)(unsafe.Pointer(p))
 
-	// FIXME: maybe deal with other formats?
+	// maybe deal with other formats?
 	if info.BitCount != 32 {
 		return nil, errUnsupported
 	}
@@ -163,7 +163,7 @@ func writeImage(buf []byte) error {
 		return fmt.Errorf("input bytes is not PNG encoded: %w", err)
 	}
 
-	offset := unsafe.Sizeof(bitmapV5HEADER{})
+	offset := unsafe.Sizeof(bitmapV5Header{})
 	width := img.Bounds().Dx()
 	height := img.Bounds().Dy()
 	imageSize := 4 * width * height
@@ -180,7 +180,7 @@ func writeImage(buf []byte) error {
 		}
 	}
 
-	info := bitmapV5HEADER{}
+	info := bitmapV5Header{}
 	info.Size = uint32(offset)
 	info.Width = int32(width)
 	info.Height = int32(height)
@@ -191,9 +191,22 @@ func writeImage(buf []byte) error {
 	info.GreenMask = 0xff00
 	info.BlueMask = 0xff
 	info.AlphaMask = 0xff000000
-	info.BitCount = 32
+	info.BitCount = 32 // we only deal with 32 bpp at the moment.
+	// Use calibrated RGB values as Go's image/png assumes linear color space.
+	// Other options:
+	// - LCS_CALIBRATED_RGB = 0x00000000
+	// - LCS_sRGB = 0x73524742
+	// - LCS_WINDOWS_COLOR_SPACE = 0x57696E20
+	// https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/eb4bbd50-b3ce-4917-895c-be31f214797f
 	info.CSType = 0 // 1934772034
-	info.Intent = 4
+	// Use GL_IMAGES for GamutMappingIntent
+	// Other options:
+	// - LCS_GM_ABS_COLORIMETRIC = 0x00000008
+	// - LCS_GM_BUSINESS = 0x00000001
+	// - LCS_GM_GRAPHICS = 0x00000002
+	// - LCS_GM_IMAGES = 0x00000004
+	// https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/9fec0834-607d-427d-abd5-ab240fb0db38
+	info.Intent = 4 // LCS_GM_IMAGES
 
 	infob := make([]byte, int(unsafe.Sizeof(info)))
 	for i, v := range *(*[unsafe.Sizeof(info)]byte)(unsafe.Pointer(&info)) {
@@ -325,10 +338,12 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 func watch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
+	ready := make(chan struct{})
 	go func() {
 		// not sure if we are too slow or the user too fast :)
 		ti := time.NewTicker(time.Second)
 		cnt, _, _ := getClipboardSequenceNumber.Call()
+		ready <- struct{}{}
 		for {
 			select {
 			case <-ctx.Done():
@@ -347,6 +362,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 			}
 		}
 	}()
+	<-ready
 	return recv
 }
 
@@ -360,9 +376,9 @@ const (
 	gmemMoveable   = 0x0002
 )
 
-// BITMAPV5HEADER structure. See:
+// BITMAPV5Header structure, see:
 // https://docs.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-bitmapv5header
-type bitmapV5HEADER struct {
+type bitmapV5Header struct {
 	Size          uint32
 	Width         int32
 	Height        int32
@@ -393,19 +409,9 @@ type bitmapV5HEADER struct {
 	Reserved    uint32
 }
 
-type bitmapINFO struct {
-	bitmapV5HEADER
-	BmiColors *struct {
-		RgbBlue     byte
-		RgbGreen    byte
-		RgbRed      byte
-		RgbReserved byte
-	}
-}
-
+// Calling a Windows DLL, see:
+// https://github.com/golang/go/wiki/WindowsDLLs
 var (
-	// Calling a Windows DLL, see:
-	// https://github.com/golang/go/wiki/WindowsDLLs
 	user32 = syscall.MustLoadDLL("user32")
 	// Opens the clipboard for examination and prevents other
 	// applications from modifying the clipboard content.
@@ -449,9 +455,21 @@ var (
 	registerClipboardFormatA = user32.MustFindProc("RegisterClipboardFormatA")
 
 	kernel32 = syscall.NewLazyDLL("kernel32")
-	gLock    = kernel32.NewProc("GlobalLock")
-	gUnlock  = kernel32.NewProc("GlobalUnlock")
-	gAlloc   = kernel32.NewProc("GlobalAlloc")
-	gFree    = kernel32.NewProc("GlobalFree")
-	memMove  = kernel32.NewProc("RtlMoveMemory")
+
+	// Locks a global memory object and returns a pointer to the first
+	// byte of the object's memory block.
+	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globallock
+	gLock = kernel32.NewProc("GlobalLock")
+	// Decrements the lock count associated with a memory object that was
+	// allocated with GMEM_MOVEABLE. This function has no effect on memory
+	// objects allocated with GMEM_FIXED.
+	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalunlock
+	gUnlock = kernel32.NewProc("GlobalUnlock")
+	// Allocates the specified number of bytes from the heap.
+	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalalloc
+	gAlloc = kernel32.NewProc("GlobalAlloc")
+	// Frees the specified global memory object and invalidates its handle.
+	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalfree
+	gFree   = kernel32.NewProc("GlobalFree")
+	memMove = kernel32.NewProc("RtlMoveMemory")
 )

@@ -45,7 +45,7 @@ var (
 )
 
 var (
-	errUnsupported = errors.New("unsupported MIME format")
+	errUnsupported = errors.New("unsupported data format")
 )
 
 func main() {
