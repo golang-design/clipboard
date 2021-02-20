@@ -8,7 +8,7 @@ import "golang.design/x/clipboard"
 
 ## Features
 
-- Cross platform supports: macOS, Unix-like (X11), and Windows
+- Cross platform supports: macOS, Linux (X11), and Windows
 - Copy/paste UTF-8 text
 - Copy/paste PNG encoded images
 - Command `gclip` as a demo application
@@ -109,8 +109,8 @@ accessing system clipboards, but here are a few details you might need to know.
 
 ### Dependency
 
-- Unix-like users: require X11 dev package. For instance, Linux users should install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
 - macOS users: require Cgo, no dependency
+- Linux users: require X11 dev package. For instance, install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
 - Windows users: no Cgo, no dependency
 
 ### Screenshot
