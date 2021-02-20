@@ -126,6 +126,16 @@ As described in the API documentation, the package supports read/write
 UTF8 encoded plain text or PNG encoded image data. Thus,
 the other types of data are not supported yet, i.e. undefined behavior.
 
+## Who is using this package?
+
+The main purpose of building this package is to support the
+[midgard](https://changkun.de/s/midgard) project, which offers
+clipboard-based features like universal clipboard service that syncs
+clipboard content across multiple systems, allocating public accessible
+for clipboard content, etc.
+
+To know more projects, check our [wiki](https://github.com/golang-design/clipboard/wiki) page.
+
 ## License
 
 MIT | &copy; 2021 The golang.design Initiative Authors, written by [Changkun Ou](https://changkun.de).
