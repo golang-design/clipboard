@@ -314,8 +314,10 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 	}
 
 	changed := make(chan struct{}, 1)
+	// FIXME: it looks like GetClipboardSequenceNumber can produce false report.
+	// where cnt could be less than cur.
+	cnt, _, _ := getClipboardSequenceNumber.Call()
 	go func() {
-		cnt, _, _ := getClipboardSequenceNumber.Call()
 		for {
 			time.Sleep(time.Second)
 			cur, _, _ := getClipboardSequenceNumber.Call()
