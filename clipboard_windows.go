@@ -114,7 +114,7 @@ func readImage(format uintptr) ([]byte, error) {
 	defer gUnlock.Call(hMem)
 
 	// inspect header information
-	info := (*bitmapINFO)(unsafe.Pointer(p))
+	info := (*bitmapV5HEADER)(unsafe.Pointer(p))
 
 	// FIXME: maybe deal with other formats?
 	if info.BitCount != 32 {
@@ -132,10 +132,7 @@ func readImage(format uintptr) ([]byte, error) {
 	for y := 0; y < int(info.Height); y++ {
 		for x := 0; x < int(info.Width); x++ {
 			idx := offset + 4*(y*stride+x)
-
-			// It seems that reading from clipboard data causes 3 pixels
-			// offset. I don't have a clear evidence on the root reason yet.
-			xhat := (x + int(info.Width) - 3) % int(info.Width)
+			xhat := (x + int(info.Width)) % int(info.Width)
 			yhat := int(info.Height) - y
 			r := data[idx+2]
 			g := data[idx+1]
@@ -150,7 +147,6 @@ func readImage(format uintptr) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// FIXME: not working yet.
 func writeImage(buf []byte) error {
 	r, _, err := emptyClipboard.Call()
 	if r == 0 {
@@ -171,17 +167,12 @@ func writeImage(buf []byte) error {
 	width := img.Bounds().Dx()
 	height := img.Bounds().Dy()
 	imageSize := 4 * width * height
-	fmt.Println(offset, imageSize)
 
 	data := make([]byte, int(offset)+imageSize)
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			idx := int(offset) + 4*(y*width+x)
-			// It seems that reading from clipboard data causes 3 pixels
-			// offset. I don't have a clear evidence on the root reason yet.
-			xhat := (x + int(width) - 3) % int(width)
-			yhat := int(height) - y
-			r, g, b, a := img.At(xhat, yhat).RGBA()
+			r, g, b, a := img.At(x, height-y).RGBA()
 			data[idx+2] = uint8(r)
 			data[idx+1] = uint8(g)
 			data[idx+0] = uint8(b)
@@ -189,7 +180,7 @@ func writeImage(buf []byte) error {
 		}
 	}
 
-	info := (*bitmapV5HEADER)(unsafe.Pointer(&data))
+	info := bitmapV5HEADER{}
 	info.Size = uint32(offset)
 	info.Width = int32(width)
 	info.Height = int32(height)
@@ -200,7 +191,15 @@ func writeImage(buf []byte) error {
 	info.GreenMask = 0xff00
 	info.BlueMask = 0xff
 	info.AlphaMask = 0xff000000
-	fmt.Println(data[:140])
+	info.BitCount = 32
+	info.CSType = 0 // 1934772034
+	info.Intent = 4
+
+	infob := make([]byte, int(unsafe.Sizeof(info)))
+	for i, v := range *(*[unsafe.Sizeof(info)]byte)(unsafe.Pointer(&info)) {
+		infob[i] = v
+	}
+	copy(data[:], infob[:])
 
 	hMem, _, err := gAlloc.Call(gmemMoveable,
 		uintptr(len(data)*int(unsafe.Sizeof(data[0]))))
@@ -214,11 +213,10 @@ func writeImage(buf []byte) error {
 	}
 	defer gUnlock.Call(hMem)
 
-	// FIXME: why panic????
 	memMove.Call(p, uintptr(unsafe.Pointer(&data[0])),
 		uintptr(len(data)*int(unsafe.Sizeof(data[0]))))
 
-	v, _, err := setClipboardData.Call(cFmtUnicodeText, hMem)
+	v, _, err := setClipboardData.Call(cFmtDIBV5, hMem)
 	if v == 0 {
 		gFree.Call(hMem)
 		return fmt.Errorf("failed to set text to clipboard: %w", err)

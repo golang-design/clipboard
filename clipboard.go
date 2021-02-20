@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	debug               = true
+	debug               = false
 	errUnavailable      = errors.New("clipboard unavailable")
 	errUnsupported      = errors.New("unsupported format")
 	errInvalidOperation = errors.New("invalid operation")
