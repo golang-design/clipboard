@@ -6,32 +6,39 @@ cross platform clipboard package in Go
 import "golang.design/x/clipboard"
 ```
 
-## Dependency
+## Features
 
-- Linux users: require X: `apt install -y libx11-dev` or `xorg-dev`
-- macOS users: require Cgo, no dependency
-- Windows users: unsupported yet
+- Cross platform supports: macOS, Unix-like (X11), and Windows
+- Copy/paste UTF-8 text
+- Copy/paste PNG encoded images
+- Command `gclip` as a demo application
 
 ## API Usage
 
-Quick start:
+Package `clipboard` provides three major APIs for manipulating the
+clipboard: `Read`, `Write`, and `Watch`. The most common operations are
+`Read` and `Write`. To use them, you can:
 
 ```go
-// write/read text format data of the clipboard
+// write/read text format data of the clipboard, and
+// the byte buffer regarding the text are UTF8 encoded.
 clipboard.Write(clipboard.FmtText, []byte("text data"))
 clipboard.Read(clipboard.FmtText)
 
-// write/read image format data of the clipboard, assume
-// image bytes are png encoded.
+// write/read image format data of the clipboard, and
+// the byte buffer regarding the image are PNG encoded.
 clipboard.Write(clipboard.FmtImage, []byte("image data"))
 clipboard.Read(clipboard.FmtImage)
 ```
 
-In addition, the `clipboard.Write` API returns a channel that
-can receive an empty struct as a signal that indicates the
-corresponding write call to the clipboard is outdated, meaning
-the clipboard has been overwritten by others and the previously
-written data is lost. For instance:
+Note that read/write regarding image format assumes that the bytes are
+PNG encoded since it serves the alpha blending purpose that might be
+used in other graphical software.
+
+In addition, `clipboard.Write` returns a channel that can receive an
+empty struct as a signal, which indicates the corresponding write call
+to the clipboard is outdated, meaning the clipboard has been overwritten
+by others and the previously written data is lost. For instance:
 
 ```go
 changed := clipboard.Write(clipboard.FmtText, []byte("text data"))
@@ -42,7 +49,7 @@ case <-changed:
 }
 ```
 
-You can ignore the reutrning channel if you don't need this type of
+You can ignore the returning channel if you don't need this type of
 notification. Furthermore, when you need more than just knowing whether
 clipboard data is changed, use the watcher API:
 
@@ -95,15 +102,29 @@ background using a shell `&` operator, for example:
 $ cat x.txt | gclip -copy &
 ```
 
-## Additional Notes
+## Platform Specific Details
 
-In general, to put image data to system clipboard, there are system level shortcuts:
+This package spent efforts to provide cross platform abstraction regarding
+accessing system clipboards, but here are a few details you might need to know.
 
-- On macOS, using shortcut `Ctrl+Shift+Cmd+4`
-- On Linux/Ubuntu, using `Ctrl+Shift+PrintScreen`
+### Dependency
 
-The package supports read/write plain text or PNG encoded image data.
-The other types of data are not supported yet, i.e. undefined behavior.
+- Unix-like users: require X11 dev package. For instance, Linux users should install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
+- macOS users: require Cgo, no dependency
+- Windows users: no Cgo, no dependency
+
+### Screenshot
+
+In general, when you need test your implementation regarding images,
+There are system level shortcuts to put screenshot image into your system clipboard:
+
+- On macOS, use `Ctrl+Shift+Cmd+4`
+- On Linux/Ubuntu, use `Ctrl+Shift+PrintScreen`
+- On Windows, use `Shift+Win+s`
+
+As described in the API documentation, the package supports read/write
+UTF8 encoded plain text or PNG encoded image data. Thus,
+the other types of data are not supported yet, i.e. undefined behavior.
 
 ## License
 

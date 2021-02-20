@@ -28,7 +28,7 @@ import (
 	"unsafe"
 )
 
-func read(t Format) (buf []byte) {
+func read(t Format) (buf []byte, err error) {
 	var (
 		data unsafe.Pointer
 		n    C.uint
@@ -40,18 +40,18 @@ func read(t Format) (buf []byte) {
 		n = C.clipboard_read_image(&data)
 	}
 	if data == nil {
-		return nil
+		return nil, errUnavailable
 	}
 	defer C.free(unsafe.Pointer(data))
 	if n == 0 {
-		return nil
+		return nil, nil
 	}
-	return C.GoBytes(data, C.int(n))
+	return C.GoBytes(data, C.int(n)), nil
 }
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t Format, buf []byte) (bool, <-chan struct{}) {
+func write(t Format, buf []byte) (<-chan struct{}, error) {
 	var ok C.int
 	switch t {
 	case FmtText:
@@ -70,7 +70,7 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 		}
 	}
 	if ok != 0 {
-		return false, nil
+		return nil, errInvalidOperation
 	}
 
 	// use unbuffered data to prevent goroutine leak
@@ -88,15 +88,15 @@ func write(t Format, buf []byte) (bool, <-chan struct{}) {
 			}
 		}
 	}()
-	return true, changed
+	return changed, nil
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
+	// not sure if we are too slow or the user too fast :)
+	ti := time.NewTicker(time.Second)
+	lastCount := C.long(C.clipboard_change_count())
 	go func() {
-		// not sure if we are too slow or the user too fast :)
-		ti := time.NewTicker(time.Second)
-		lastCount := C.long(C.clipboard_change_count())
 		for {
 			select {
 			case <-ctx.Done():

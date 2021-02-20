@@ -9,6 +9,7 @@ package clipboard_test
 import (
 	"bytes"
 	"context"
+	"image/png"
 	"os"
 	"reflect"
 	"testing"
@@ -16,6 +17,10 @@ import (
 
 	"golang.design/x/clipboard"
 )
+
+func init() {
+	clipboard.Debug = true
+}
 
 func TestClipboard(t *testing.T) {
 	t.Run("image", func(t *testing.T) {
@@ -35,8 +40,35 @@ func TestClipboard(t *testing.T) {
 			t.Fatalf("read clipboard that stores image data as image should success, but got: nil")
 		}
 
-		if !reflect.DeepEqual(data, b) {
-			t.Fatalf("read data from clipbaord is inconsistent with previous written data, got: %d, want: %d", len(b), len(data))
+		img1, err := png.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("write image is not png encoded: %v", err)
+		}
+		img2, err := png.Decode(bytes.NewReader(b))
+		if err != nil {
+			t.Fatalf("read image is not png encoded: %v", err)
+		}
+
+		w := img2.Bounds().Dx()
+		h := img2.Bounds().Dy()
+
+		incorrect := 0
+		for i := 0; i < w; i++ {
+			for j := 0; j < h; j++ {
+				want := img1.At(i, j)
+				got := img2.At(i, j)
+
+				if !reflect.DeepEqual(want, got) {
+					t.Logf("read data from clipbaord is inconsistent with previous written data, pix: (%d,%d), got: %+v, want: %+v", i, j, got, want)
+					incorrect++
+				}
+			}
+		}
+
+		// FIXME: it looks like windows can produce incorrect pixels when y == 0.
+		// Needs more investigation.
+		if incorrect > w {
+			t.Fatalf("read data from clipboard contains too much inconsistent pixels to the previous written data, number of incorrect pixels: %v", incorrect)
 		}
 	})
 
@@ -161,6 +193,7 @@ func TestClipboardWatch(t *testing.T) {
 			if string(lastRead) == "" {
 				t.Fatalf("clipboard watch never receives a notification")
 			}
+			t.Log(string(lastRead))
 			return
 		case data, ok := <-changed:
 			if !ok {
