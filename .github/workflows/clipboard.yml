@@ -39,6 +39,7 @@ jobs:
       run: |
         Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
         export DISPLAY=:99.0
+        sleep 5s
         go test -v -covermode=atomic ./...
       if: ${{ runner.os == 'Linux' }}
 
