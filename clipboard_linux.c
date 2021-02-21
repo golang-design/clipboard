@@ -10,6 +10,9 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 
+// syncStatus is a function from the Go side.
+extern void syncStatus(unsigned long long handle, int status);
+
 int clipboard_test() {
     Display *d = XOpenDisplay(0);
     if (d == NULL) {
@@ -22,10 +25,10 @@ int clipboard_test() {
 // clipboard_write writes the given buf of size n as type typ.
 // if start is provided, the value of start will be changed to 1 to indicate
 // if the write is availiable for reading.
-int clipboard_write(char *typ, unsigned char *buf, size_t n, int *start) {
+int clipboard_write(char *typ, unsigned char *buf, size_t n, unsigned long long handle) {
     Display* d = XOpenDisplay(0);
     if (d == NULL) {
-        if (start != NULL && *start == 0) *start = -1;
+        if (handle != 0) syncStatus(handle, -1);
         return -1;
     }
 
@@ -41,24 +44,25 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, int *start) {
     Atom target = XInternAtom(d, typ, True);
     if (target == None) {
         XCloseDisplay(d);
-        if (start != NULL && *start == 0) *start = -2;
+        if (handle != 0) syncStatus(handle, -2);
         return -2;
     }
 
     XSetSelectionOwner(d, sel, w, CurrentTime);
     if (XGetSelectionOwner(d, sel) != w) {
         XCloseDisplay(d);
-        if (start != NULL && *start == 0) *start = -3;
+        if (handle != 0) syncStatus(handle, -3);
         return -3;
     }
 
     XEvent event;
     XSelectionRequestEvent* xsr;
+    int notified = 0;
     for (;;) {
-        // FIXME: this should race with the code on the Go side, start
-        // should use an atomic version, and use atomic_store.
-        if (start != NULL && *start == 0) 
-            *start = 1; // notify Go side
+        if (handle != 0 && notified == 0) { 
+            syncStatus(handle, 1); // notify Go side
+            notified = 1;
+        }
 
         XNextEvent(d, &event);
         switch (event.type) {

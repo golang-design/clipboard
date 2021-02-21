@@ -23,7 +23,7 @@ int clipboard_write(
 	char*          typ,
 	unsigned char* buf,
 	size_t         n,
-	int*           start // FIXME: should use atomic
+	unsigned long long handle
 );
 unsigned long clipboard_read(char* typ, char **out);
 */
@@ -36,6 +36,8 @@ import (
 	"runtime"
 	"time"
 	"unsafe"
+
+	"golang.design/x/clipboard/internal/cgo"
 )
 
 func init() {
@@ -90,7 +92,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		s = "image/png"
 	}
 
-	var start C.int
+	start := make(chan int)
 	done := make(chan struct{}, 1)
 
 	go func() { // surve as a daemon until the ownership is terminated.
@@ -100,11 +102,12 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		cs := C.CString(s)
 		defer C.free(unsafe.Pointer(cs))
 
+		h := cgo.NewHandle(start)
 		var ok C.int
 		if len(buf) == 0 {
-			ok = C.clipboard_write(cs, nil, 0, &start)
+			ok = C.clipboard_write(cs, nil, 0, C.ulonglong(h))
 		} else {
-			ok = C.clipboard_write(cs, (*C.uchar)(unsafe.Pointer(&(buf[0]))), C.size_t(len(buf)), &start)
+			ok = C.clipboard_write(cs, (*C.uchar)(unsafe.Pointer(&(buf[0]))), C.size_t(len(buf)), C.ulonglong(h))
 		}
 		if ok != C.int(0) {
 			fmt.Fprintf(os.Stderr, "write failed with status: %d\n", int(ok))
@@ -113,12 +116,8 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		close(done)
 	}()
 
-	// FIXME: this should race with the code on the C side, start
-	// should use an atomic version, and use atomic_load.
-	for start == 0 {
-	}
-
-	if start < 0 {
+	status := <-start
+	if status < 0 {
 		return nil, errInvalidOperation
 	}
 	// wait until enter event loop
@@ -148,4 +147,15 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 		}
 	}()
 	return recv
+}
+
+type syncChan struct {
+	c chan int
+}
+
+//export syncStatus
+func syncStatus(h uintptr, val int) {
+	v := cgo.Handle(h).Value().(chan int)
+	v <- val
+	cgo.Handle(h).Delete()
 }
