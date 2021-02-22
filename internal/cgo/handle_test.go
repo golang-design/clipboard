@@ -122,3 +122,22 @@ func TestFuncHandle(t *testing.T) {
 		t.Fatalf("different methods should have different handles")
 	}
 }
+func BenchmarkHandle(b *testing.B) {
+	b.Run("non-concurrent", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			h := NewHandle(i)
+			_ = h.Value()
+			h.Delete()
+		}
+	})
+	b.Run("concurrent", func(b *testing.B) {
+		b.RunParallel(func(pb *testing.PB) {
+			var v int
+			for pb.Next() {
+				h := NewHandle(v)
+				_ = h.Value()
+				h.Delete()
+			}
+		})
+	})
+}
