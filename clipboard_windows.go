@@ -132,6 +132,11 @@ func readImage() ([]byte, error) {
 	for y := 0; y < int(info.Height); y++ {
 		for x := 0; x < int(info.Width); x++ {
 			idx := offset + 4*(y*stride+x)
+
+			// FIXME: It seems that reading from clipboard data causes 3 pixels
+			// offset. I don't have a clear evidence on the root reason yet.
+			// xhat := (x + int(info.Width-3)) % int(info.Width)
+
 			xhat := (x + int(info.Width)) % int(info.Width)
 			yhat := int(info.Height) - y
 			r := data[idx+2]
@@ -172,6 +177,13 @@ func writeImage(buf []byte) error {
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			idx := int(offset) + 4*(y*width+x)
+
+			// FIXME: It seems that reading from clipboard data causes 3 pixels
+			// offset. I don't have a clear evidence on the root reason yet.
+			// xhat := (x + int(width) - 3) % int(width)
+			// yhat := int(height) - y
+			// r, g, b, a := img.At(xhat, yhat).RGBA()
+
 			r, g, b, a := img.At(x, height-y).RGBA()
 			data[idx+2] = uint8(r)
 			data[idx+1] = uint8(g)
@@ -198,7 +210,7 @@ func writeImage(buf []byte) error {
 	// - LCS_sRGB = 0x73524742
 	// - LCS_WINDOWS_COLOR_SPACE = 0x57696E20
 	// https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/eb4bbd50-b3ce-4917-895c-be31f214797f
-	info.CSType = 0 // 1934772034
+	info.CSType = 0x73524742
 	// Use GL_IMAGES for GamutMappingIntent
 	// Other options:
 	// - LCS_GM_ABS_COLORIMETRIC = 0x00000008
@@ -286,8 +298,8 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 	errch := make(chan error)
 	changed := make(chan struct{}, 1)
 	go func() {
-		// make sure GetClipboardSequenceNumber happens with OpenClipboard
-		// on the same thread.
+		// make sure GetClipboardSequenceNumber happens with
+		// OpenClipboard on the same thread.
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		for {
@@ -297,7 +309,6 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			}
 			break
 		}
-		defer closeClipboard.Call()
 
 		// var param uintptr
 		switch t {
@@ -305,6 +316,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			err := writeImage(buf)
 			if err != nil {
 				errch <- err
+				closeClipboard.Call()
 				return
 			}
 		case FmtText:
@@ -314,9 +326,14 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			err := writeText(buf)
 			if err != nil {
 				errch <- err
+				closeClipboard.Call()
 				return
 			}
 		}
+		// Close the clipboard otherwise other applications cannot
+		// paste the data.
+		closeClipboard.Call()
+
 		cnt, _, _ := getClipboardSequenceNumber.Call()
 		errch <- nil
 		for {
