@@ -4,8 +4,8 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-// +build linux
 //go:build linux
+// +build linux
 
 package clipboard
 

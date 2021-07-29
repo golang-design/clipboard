@@ -4,6 +4,9 @@
 //
 // Written by Changkun Ou <changkun.de>
 
+//go:build linux
+// +build linux
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
