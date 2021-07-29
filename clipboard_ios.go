@@ -4,38 +4,26 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build android
-// +build android
+//go:build ios
+// +build ios
 
 package clipboard
 
 /*
-#cgo LDFLAGS: -landroid -llog
-#include <stdlib.h>
-char *clipboard_read_string(uintptr_t java_vm, uintptr_t jni_env, uintptr_t ctx);
-void clipboard_write_string(uintptr_t java_vm, uintptr_t jni_env, uintptr_t ctx, char *str);
+#cgo CFLAGS: -x objective-c
+#cgo LDFLAGS: -framework Foundation -framework UIKit -framework MobileCoreServices
+void clipboard_write_string(char *s);
+char *clipboard_read_string();
 */
 import "C"
-import (
-	"unsafe"
-
-	"golang.org/x/mobile/app"
-)
+import "unsafe"
 
 func read(t Format) (buf []byte, err error) {
+	return C.GoString(C.clipboard_read_string())
+
 	switch t {
 	case FmtText:
-		s := ""
-		app.RunOnJVM(func(vm, env, ctx uintptr) error {
-			cs := C.clipboard_read_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_T(ctx))
-			if cs == nil {
-				return nil
-			}
-
-			s := C.GoString(cs)
-			C.free(unsafe.Pointer(cs))
-		})
-		return []byte(s), nil
+		return []byte(C.GoString(C.clipboard_read_string())), nil
 	case FmtImage:
 		return nil, errors.New("unimplemented")
 	default:
@@ -43,8 +31,7 @@ func read(t Format) (buf []byte, err error) {
 	}
 }
 
-// write writes the given data to clipboard and
-// returns true if success or false if failed.
+// SetContent sets the clipboard content for iOS
 func write(t Format, buf []byte) (<-chan struct{}, error) {
 	done := make(chan struct{}, 1)
 	switch t {
@@ -52,11 +39,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		cs := C.CString(string(buf))
 		defer C.free(unsafe.Pointer(cs))
 
-		app.RunOnJVM(func(vm, env, ctx uintptr) error {
-			C.clipboard_write_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx), cs)
-			done <- struct{}{}
-			return nil
-		})
+		C.clipboard_write_string(cs)
 		return done, nil
 	case FmtImage:
 		return nil, errors.New("unimplemented")
