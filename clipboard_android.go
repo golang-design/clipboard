@@ -17,6 +17,10 @@ void clipboard_write_string(uintptr_t java_vm, uintptr_t jni_env, uintptr_t ctx,
 */
 import "C"
 import (
+	"bytes"
+	"context"
+	"errors"
+	"time"
 	"unsafe"
 
 	"golang.org/x/mobile/app"
@@ -27,19 +31,20 @@ func read(t Format) (buf []byte, err error) {
 	case FmtText:
 		s := ""
 		app.RunOnJVM(func(vm, env, ctx uintptr) error {
-			cs := C.clipboard_read_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_T(ctx))
+			cs := C.clipboard_read_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx))
 			if cs == nil {
 				return nil
 			}
 
-			s := C.GoString(cs)
+			s = C.GoString(cs)
 			C.free(unsafe.Pointer(cs))
+			return nil
 		})
 		return []byte(s), nil
 	case FmtImage:
-		return nil, errors.New("unimplemented")
+		return nil, errors.New("unsupported")
 	default:
-		return nil, errors.New("unimplemented")
+		return nil, errors.New("unsupported")
 	}
 }
 
@@ -59,9 +64,9 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		})
 		return done, nil
 	case FmtImage:
-		return nil, errors.New("unimplemented")
+		return nil, errors.New("unsupported")
 	default:
-		return nil, errors.New("unimplemented")
+		return nil, errors.New("unsupported")
 	}
 }
 

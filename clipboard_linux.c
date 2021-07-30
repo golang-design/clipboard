@@ -4,8 +4,8 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build linux
-// +build linux
+//go:build linux && !android
+// +build linux !android
 
 #include <stdlib.h>
 #include <stdio.h>

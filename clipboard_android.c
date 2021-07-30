@@ -77,6 +77,5 @@ void clipboard_write_string(uintptr_t java_vm, uintptr_t jni_env, uintptr_t ctx,
 	jclass mgrClass = (*env)->GetObjectClass(env, mgr);
 	jmethodID setText = find_method(env, mgrClass, "setText", "(Ljava/lang/CharSequence;)V");
 
-	jstring str = (*env)->NewStringUTF(env, content);
-	(*env)->CallVoidMethod(env, mgr, setText, str);
+	(*env)->CallVoidMethod(env, mgr, setText, (*env)->NewStringUTF(env, str));
 }
