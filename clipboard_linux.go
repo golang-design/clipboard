@@ -13,6 +13,7 @@ package clipboard
 #cgo LDFLAGS: -lX11
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
@@ -23,7 +24,7 @@ int clipboard_write(
 	char*          typ,
 	unsigned char* buf,
 	size_t         n,
-	unsigned long long handle
+	uintptr_t      handle
 );
 unsigned long clipboard_read(char* typ, char **out);
 */
@@ -34,10 +35,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/cgo"
 	"time"
 	"unsafe"
-
-	"golang.design/x/clipboard/internal/cgo"
 )
 
 func init() {
@@ -105,9 +105,9 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		h := cgo.NewHandle(start)
 		var ok C.int
 		if len(buf) == 0 {
-			ok = C.clipboard_write(cs, nil, 0, C.ulonglong(h))
+			ok = C.clipboard_write(cs, nil, 0, C.uintptr_t(h))
 		} else {
-			ok = C.clipboard_write(cs, (*C.uchar)(unsafe.Pointer(&(buf[0]))), C.size_t(len(buf)), C.ulonglong(h))
+			ok = C.clipboard_write(cs, (*C.uchar)(unsafe.Pointer(&(buf[0]))), C.size_t(len(buf)), C.uintptr_t(h))
 		}
 		if ok != C.int(0) {
 			fmt.Fprintf(os.Stderr, "write failed with status: %d\n", int(ok))

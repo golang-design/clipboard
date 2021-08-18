@@ -6,12 +6,13 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 
 // syncStatus is a function from the Go side.
-extern void syncStatus(unsigned long long handle, int status);
+extern void syncStatus(uintptr_t handle, int status);
 
 int clipboard_test() {
     Display *d = XOpenDisplay(0);
@@ -25,7 +26,7 @@ int clipboard_test() {
 // clipboard_write writes the given buf of size n as type typ.
 // if start is provided, the value of start will be changed to 1 to indicate
 // if the write is availiable for reading.
-int clipboard_write(char *typ, unsigned char *buf, size_t n, unsigned long long handle) {
+int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
     Display* d = XOpenDisplay(0);
     if (d == NULL) {
         if (handle != 0) syncStatus(handle, -1);
