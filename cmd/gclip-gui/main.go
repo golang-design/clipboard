@@ -5,7 +5,6 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build android || ios || linux
-// +build android ios linux
 
 // This is a very basic example that shows how the
 // golang.design/x/clipboard can interact with Android/iOS system clipboard.
