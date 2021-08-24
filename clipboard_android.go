@@ -11,9 +11,11 @@ package clipboard
 
 /*
 #cgo LDFLAGS: -landroid -llog
+
 #include <stdlib.h>
 char *clipboard_read_string(uintptr_t java_vm, uintptr_t jni_env, uintptr_t ctx);
 void clipboard_write_string(uintptr_t java_vm, uintptr_t jni_env, uintptr_t ctx, char *str);
+
 */
 import "C"
 import (

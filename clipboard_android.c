@@ -27,11 +27,11 @@ static jmethodID find_method(JNIEnv *env, jclass clazz, const char *name, const 
 
 jobject get_clipboard(uintptr_t jni_env, uintptr_t ctx) {
 	JNIEnv *env = (JNIEnv*)jni_env;
-	jclass ctxClass = (*env)->GetObjectClass(env, ctx);
+	jclass ctxClass = (*env)->GetObjectClass(env, (jobject)ctx);
 	jmethodID getSystemService = find_method(env, ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
 
 	jstring service = (*env)->NewStringUTF(env, "clipboard");
-	jobject ret = (jobject)(*env)->CallObjectMethod(env, ctx, getSystemService, service);
+	jobject ret = (jobject)(*env)->CallObjectMethod(env, (jobject)ctx, getSystemService, service);
 	jthrowable err = (*env)->ExceptionOccurred(env);
 
 	if (err != NULL) {
@@ -62,7 +62,7 @@ char *clipboard_read_string(uintptr_t java_vm, uintptr_t jni_env, uintptr_t ctx)
 	jobject s = (*env)->CallObjectMethod(env, content, toString);
 
 	const char *chars = (*env)->GetStringUTFChars(env, s, NULL);
-	const char *copy = strdup(chars);
+	char *copy = strdup(chars);
 	(*env)->ReleaseStringUTFChars(env, s, chars);
 	return copy;
 }

@@ -1,6 +1,6 @@
 # clipboard [![PkgGoDev](https://pkg.go.dev/badge/golang.design/x/clipboard)](https://pkg.go.dev/golang.design/x/clipboard) ![](https://changkun.de/urlstat?mode=github&repo=golang-design/clipboard) ![clipboard](https://github.com/golang-design/clipboard/workflows/clipboard/badge.svg?branch=main)
 
-cross platform clipboard package in Go
+Cross platform clipboard package in Go
 
 ```go
 import "golang.design/x/clipboard"
@@ -8,10 +8,11 @@ import "golang.design/x/clipboard"
 
 ## Features
 
-- Cross platform supports: macOS, Linux (X11), Windows, iOS, and Android
+- Cross platform supports: **macOS, Linux (X11), Windows, iOS, and Android**
 - Copy/paste UTF-8 text
-- Copy/paste PNG encoded images
+- Copy/paste PNG encoded images (Desktop-only)
 - Command `gclip` as a demo application
+- Mobile app `Gclip` as a demo application
 
 ## API Usage
 
@@ -112,7 +113,7 @@ accessing system clipboards, but here are a few details you might need to know.
 - macOS: require Cgo, no dependency
 - Linux: require X11 dev package. For instance, install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
 - Windows: no Cgo, no dependency
-- iOS/Android: require [`gomobile`](https://golang.org/x/mobile)
+- iOS/Android: collaborate with [`gomobile`](https://golang.org/x/mobile)
 
 ### Screenshot
 
