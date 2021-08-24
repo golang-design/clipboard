@@ -22,9 +22,9 @@ provided in the [GoMobile wiki](https://github.com/golang/go/wiki/Mobile) page.
 
 ## Screenshots
 
-| macOS | iOS | Windows |
-|:------:|:---:|:------:|
-|![](./darwin.png)|![](./ios.png)|![](./windows.png)
+| macOS | iOS | Windows | Android |
+|:------:|:---:|:------:|:-------:|
+|![](./darwin.png)|![](./ios.png)|![](./windows.png)|![](./android.png)|
 
 ## License
 
