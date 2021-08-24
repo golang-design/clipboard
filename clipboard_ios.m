@@ -16,5 +16,5 @@ void clipboard_write_string(char *s) {
 
 char *clipboard_read_string() {
     NSString *str = [[UIPasteboard generalPasteboard] string];
-    return [str UTF8String];
+    return (char *)[str UTF8String];
 }

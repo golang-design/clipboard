@@ -11,15 +11,21 @@ package clipboard
 /*
 #cgo CFLAGS: -x objective-c
 #cgo LDFLAGS: -framework Foundation -framework UIKit -framework MobileCoreServices
+
+#import <stdlib.h>
 void clipboard_write_string(char *s);
 char *clipboard_read_string();
 */
 import "C"
-import "unsafe"
+import (
+	"bytes"
+	"context"
+	"errors"
+	"time"
+	"unsafe"
+)
 
 func read(t Format) (buf []byte, err error) {
-	return C.GoString(C.clipboard_read_string())
-
 	switch t {
 	case FmtText:
 		return []byte(C.GoString(C.clipboard_read_string())), nil
