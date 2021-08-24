@@ -4,7 +4,7 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build android || ios || linux
+//go:build android || ios || linux || darwin
 
 // This is a very basic example that shows how the
 // golang.design/x/clipboard can interact with Android/iOS system clipboard.
@@ -15,11 +15,14 @@
 // Because of the system limitation, on mobile devices, only string data is
 // supported, i.e., clipboard.FmtText
 //
-// This example is intentded as cross platform application. To build it:
+// This example is intentded as cross platform application.
+// To build it, one must use gomobile (https://golang.org/x/mobile). You may
+// follow the instructions provided in the GoMobile's wiki page:
+// https://github.com/golang/go/wiki/Mobile.
 //
-// - For desktop: go build
-// - For Android:  gomobile build -v -o gclip-android.apk -target=android
-// - For iOS:      TODO
+// - For desktop: go build -o gclip-gui
+// - For Android: gomobile build -v -target=android -o gclip-gui.apk
+// - For iOS:     gomobile build -v -target=ios -bundleid design.golang.gclip-gui.app
 package main
 
 import (
@@ -195,25 +198,22 @@ func (g *GclipApp) OnDraw() {
 func main() {
 	app.Main(func(a app.App) {
 		gclip := GclipApp{app: a}
-
+		gclip.app.Send(size.Event{WidthPx: 800, HeightPx: 500})
 		gclip.WatchClipboard()
-		for {
-			select {
-			case e := <-gclip.app.Events():
-				switch e := gclip.app.Filter(e).(type) {
-				case lifecycle.Event:
-					switch e.Crosses(lifecycle.StageVisible) {
-					case lifecycle.CrossOn:
-						gclip.OnStart(e)
-					case lifecycle.CrossOff:
-						gclip.OnStop()
-						os.Exit(0)
-					}
-				case size.Event:
-					gclip.OnSize(e)
-				case paint.Event:
-					gclip.OnDraw()
+		for e := range gclip.app.Events() {
+			switch e := gclip.app.Filter(e).(type) {
+			case lifecycle.Event:
+				switch e.Crosses(lifecycle.StageVisible) {
+				case lifecycle.CrossOn:
+					gclip.OnStart(e)
+				case lifecycle.CrossOff:
+					gclip.OnStop()
+					os.Exit(0)
 				}
+			case size.Event:
+				gclip.OnSize(e)
+			case paint.Event:
+				gclip.OnDraw()
 			}
 		}
 	})
