@@ -4,25 +4,36 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build android || ios || linux || darwin
+//go:build android || ios || linux || darwin || windows
 
-// This is a very basic example that shows how the
-// golang.design/x/clipboard can interact with Android/iOS system clipboard.
+// This is a very basic example for verification purpose that
+// demonstrates how the golang.design/x/clipboard can interact
+// with macOS/Linux/Windows/Android/iOS system clipboard.
 //
-// The gclip GUI application writes a string to the system clipboard periodically
-// then reads it back and renders it if possible.
+// The gclip GUI application writes a string to the system clipboard
+// periodically then reads it back and renders it if possible.
 //
-// Because of the system limitation, on mobile devices, only string data is
-// supported, i.e., clipboard.FmtText
+// Because of the system limitation, on mobile devices, only string
+// data is supported at the moment. Hence, one must use clipboard.FmtText.
+// Other supplied formats result in a panic.
 //
 // This example is intentded as cross platform application.
-// To build it, one must use gomobile (https://golang.org/x/mobile). You may
-// follow the instructions provided in the GoMobile's wiki page:
+// To build it, one must use gomobile (https://golang.org/x/mobile).
+// You may follow the instructions provided in the GoMobile's wiki page:
 // https://github.com/golang/go/wiki/Mobile.
 //
-// - For desktop: go build -o gclip-gui
-// - For Android: gomobile build -v -target=android -o gclip-gui.apk
-// - For iOS:     gomobile build -v -target=ios -bundleid design.golang.gclip-gui.app
+// - For desktop:
+//
+// 	go build -o gclip-gui
+//
+// - For Android:
+//
+// 	gomobile build -v -target=android -o gclip-gui.apk
+//
+// - For iOS:
+//
+// 	gomobile build -v -target=ios -bundleid design.golang.gclip-gui.app
+//
 package main
 
 import (
@@ -190,7 +201,7 @@ func (g *GclipApp) OnDraw() {
 	}
 	defer g.app.Send(paint.Event{})
 	defer g.app.Publish()
-	g.ctx.ClearColor(1, 1, 1, 1)
+	g.ctx.ClearColor(0, 0, 0, 1)
 	g.ctx.Clear(gl.COLOR_BUFFER_BIT)
 	g.l.Draw(g.siz)
 }
