@@ -26,7 +26,7 @@ jobs:
       if: ${{ runner.os == 'Linux' }}
       run: |
         sudo apt update
-        sudo apt install -y xvfb libx11-dev
+        sudo apt install -y xvfb libx11-dev libegl1-mesa-dev libgles2-mesa-dev
         Xvfb :0 -screen 0 1024x768x24 > /dev/null 2>&1 &
         # Wait for Xvfb
         MAX_ATTEMPTS=120 # About 60 seconds
