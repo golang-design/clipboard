@@ -4,7 +4,7 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build !linux && android
+//go:build android
 
 package clipboard
 
