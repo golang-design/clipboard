@@ -22,6 +22,10 @@ provided in the [GoMobile wiki](https://github.com/golang/go/wiki/Mobile) page.
 
 ## Screenshots
 
-| macOS | iOS |
-|:------:|:---:|
-|![](./darwin.png)|![](./ios.png)|
+| macOS | iOS | Windows |
+|:------:|:---:|:------:|
+|![](./darwin.png)|![](./ios.png)|![](./windows.png)
+
+## License
+
+MIT | &copy; 2021 The golang.design Initiative Authors, written by [Changkun Ou](https://changkun.de).

@@ -1,6 +1,6 @@
 # clipboard [![PkgGoDev](https://pkg.go.dev/badge/golang.design/x/clipboard)](https://pkg.go.dev/golang.design/x/clipboard) ![](https://changkun.de/urlstat?mode=github&repo=golang-design/clipboard) ![clipboard](https://github.com/golang-design/clipboard/workflows/clipboard/badge.svg?branch=main)
 
-Cross platform clipboard package in Go
+Cross platform (macOS/Linux/Windows/Android/iOS) clipboard package in Go
 
 ```go
 import "golang.design/x/clipboard"
@@ -12,7 +12,7 @@ import "golang.design/x/clipboard"
 - Copy/paste UTF-8 text
 - Copy/paste PNG encoded images (Desktop-only)
 - Command `gclip` as a demo application
-- Mobile app `Gclip` as a demo application
+- Mobile app `gclip-gui` as a demo application
 
 ## API Usage
 
@@ -61,6 +61,12 @@ for data := range ch {
       println(string(data))
 }
 ```
+
+## Demos
+
+- A command line tool `gclip` for command line clipboard accesses, see document [here](./cmd/gclip/README.md).
+- A GUI application `gclip-gui` for functionality verifications on mobile systems, see a document [here](./cmd/gclip-gui/README.md).
+
 
 ## Command Usage
 

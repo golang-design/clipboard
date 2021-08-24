@@ -5,9 +5,11 @@
 // Written by Changkun Ou <changkun.de>
 
 /*
-Package clipboard provides three major APIs for manipulating the
-clipboard: `Read`, `Write`, and `Watch`. The most common operations are
-`Read` and `Write`. To use them:
+Package clipboard provides cross platform clipboard access and supports
+macOS/Linux/Windows/Android/iOS platform. There are three major APIs
+to interact with the clipboard: `Read`, `Write`, and `Watch`.
+
+The most common operations are `Read` and `Write`. To use them:
 
 	// write/read text format data of the clipboard, and
 	// the byte buffer regarding the text are UTF8 encoded.
