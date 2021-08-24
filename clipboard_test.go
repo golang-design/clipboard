@@ -24,7 +24,7 @@ func init() {
 
 func TestClipboard(t *testing.T) {
 	t.Run("image", func(t *testing.T) {
-		data, err := os.ReadFile("testdata/clipboard.png")
+		data, err := os.ReadFile("tests/testdata/clipboard.png")
 		if err != nil {
 			t.Fatalf("failed to read gold file: %v", err)
 		}
@@ -92,7 +92,7 @@ func TestClipboard(t *testing.T) {
 }
 
 func TestClipboardMultipleWrites(t *testing.T) {
-	data, err := os.ReadFile("testdata/clipboard.png")
+	data, err := os.ReadFile("tests/testdata/clipboard.png")
 	if err != nil {
 		t.Fatalf("failed to read gold file: %v", err)
 	}
