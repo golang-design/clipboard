@@ -39,13 +39,28 @@ import (
 	"unsafe"
 )
 
+const errmsg = `Failed to initialize the X11 display, and the clipboard package
+will not work properly. Install the following dependency may help:
+ 
+	apt install -y libx11-dev
+
+If the clipboard package is in an environment without a frame buffer,
+such as a cloud server, it may also be necessary to install xvfb:
+
+	apt install -y xvfb
+
+and initialize a virtual frame buffer:
+
+	Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+	export DISPLAY=:99.0
+
+Then this package should be ready to use.
+`
+
 func init() {
 	ok := C.clipboard_test()
 	if ok < 0 {
-		panic(`cannot use this package, failed to initialize x11 display, maybe try install:
-
-	apt install -y libx11-dev
-`)
+		panic(errmsg)
 	}
 }
 
