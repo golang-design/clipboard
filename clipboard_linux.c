@@ -29,9 +29,16 @@ int clipboard_test() {
 // if start is provided, the value of start will be changed to 1 to indicate
 // if the write is availiable for reading.
 int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
-    Display* d = XOpenDisplay(0);
+    Display* d = NULL;
+    for (int i = 0; i < 42; i++) {
+        d = XOpenDisplay(0);
+        if (d == NULL) {
+            continue;
+        }
+        break;
+    }
     if (d == NULL) {
-        if (handle != 0) syncStatus(handle, -1);
+        syncStatus(handle, -1);
         return -1;
     }
 
@@ -47,14 +54,14 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
     Atom target = XInternAtom(d, typ, True);
     if (target == None) {
         XCloseDisplay(d);
-        if (handle != 0) syncStatus(handle, -2);
+        syncStatus(handle, -2);
         return -2;
     }
 
     XSetSelectionOwner(d, sel, w, CurrentTime);
     if (XGetSelectionOwner(d, sel) != w) {
         XCloseDisplay(d);
-        if (handle != 0) syncStatus(handle, -3);
+        syncStatus(handle, -3);
         return -3;
     }
 
@@ -62,7 +69,7 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
     XSelectionRequestEvent* xsr;
     int notified = 0;
     for (;;) {
-        if (handle != 0 && notified == 0) { 
+        if (notified == 0) { 
             syncStatus(handle, 1); // notify Go side
             notified = 1;
         }
@@ -153,7 +160,14 @@ unsigned long read_data(XSelectionEvent *sev, Atom sel, Atom prop, Atom target, 
 //
 // The caller of this function should responsible for the free of the buf.
 unsigned long clipboard_read(char* typ, char **buf) {
-    Display *d = XOpenDisplay(0);
+    Display* d = NULL;
+    for (int i = 0; i < 42; i++) {
+        d = XOpenDisplay(0);
+        if (d == NULL) {
+            continue;
+        }
+        break;
+    }
     if (d == NULL) {
         return -1;
     }
