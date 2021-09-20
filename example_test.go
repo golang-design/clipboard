@@ -4,6 +4,8 @@
 //
 // Written by Changkun Ou <changkun.de>
 
+//go:build cgo
+
 package clipboard_test
 
 import (
@@ -20,7 +22,7 @@ func ExampleWrite() {
 }
 
 func ExampleRead() {
-	fmt.Printf(string(clipboard.Read(clipboard.FmtText)))
+	fmt.Println(string(clipboard.Read(clipboard.FmtText)))
 	// Output:
 	// Hello, 世界
 }
@@ -33,7 +35,7 @@ func ExampleWatch() {
 	go func(ctx context.Context) {
 		clipboard.Write(clipboard.FmtText, []byte("你好，world"))
 	}(ctx)
-	fmt.Printf(string(<-changed))
+	fmt.Println(string(<-changed))
 	// Output:
 	// 你好，world
 }

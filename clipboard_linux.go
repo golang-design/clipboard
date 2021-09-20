@@ -41,7 +41,7 @@ import (
 
 const errmsg = `Failed to initialize the X11 display, and the clipboard package
 will not work properly. Install the following dependency may help:
- 
+
 	apt install -y libx11-dev
 
 If the clipboard package is in an environment without a frame buffer,
@@ -85,8 +85,6 @@ func readc(t string) ([]byte, error) {
 	}
 	defer C.free(unsafe.Pointer(data))
 	switch {
-	case n < 0:
-		return nil, errUnavailable
 	case n == 0:
 		return nil, nil
 	default:
@@ -153,7 +151,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 				if b == nil {
 					continue
 				}
-				if bytes.Compare(last, b) != 0 {
+				if !bytes.Equal(last, b) {
 					recv <- b
 					last = b
 				}

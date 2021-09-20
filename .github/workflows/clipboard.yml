@@ -51,8 +51,20 @@ jobs:
 
     - name: Build
       run: |
-        go build
+        go build -o gclip cmd/gclip/main.go
+        go build -o gclip-gui cmd/gclip-gui/main.go
 
-    - name: Run Tests
+    - name: Run Tests with CGO_ENABLED=1
+      if: ${{ runner.os == 'Linux' || runner.os == 'macOS'}}
       run: |
-        go test -v -covermode=atomic ./...
+        CGO_ENABLED=1 go test -v -covermode=atomic .
+
+    - name: Run Tests with CGO_ENABLED=0
+      if: ${{ runner.os == 'Linux' || runner.os == 'macOS'}}
+      run: |
+        CGO_ENABLED=0 go test -v -covermode=atomic .
+
+    - name: Run Tests on Windows
+      if: ${{ runner.os == 'Windows'}}
+      run: |
+        go test -v -covermode=atomic .

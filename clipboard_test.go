@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"os"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -23,6 +24,12 @@ func init() {
 }
 
 func TestClipboard(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+	}
+
 	t.Run("image", func(t *testing.T) {
 		data, err := os.ReadFile("tests/testdata/clipboard.png")
 		if err != nil {
@@ -92,6 +99,12 @@ func TestClipboard(t *testing.T) {
 }
 
 func TestClipboardMultipleWrites(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+	}
+
 	data, err := os.ReadFile("tests/testdata/clipboard.png")
 	if err != nil {
 		t.Fatalf("failed to read gold file: %v", err)
@@ -133,6 +146,12 @@ func TestClipboardMultipleWrites(t *testing.T) {
 }
 
 func TestClipboardConcurrentRead(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+	}
+
 	// This test check that concurrent read/write to the clipboard does
 	// not cause crashes on some specific platform, such as macOS.
 	done := make(chan bool, 2)
@@ -153,6 +172,12 @@ func TestClipboardConcurrentRead(t *testing.T) {
 }
 
 func TestClipboardWriteEmpty(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+	}
+
 	chg1 := clipboard.Write(clipboard.FmtText, nil)
 	if got := clipboard.Read(clipboard.FmtText); got != nil {
 		t.Fatalf("write nil to clipboard should read nil, got: %v", string(got))
@@ -166,6 +191,12 @@ func TestClipboardWriteEmpty(t *testing.T) {
 }
 
 func TestClipboardWatch(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
 
@@ -202,7 +233,7 @@ func TestClipboardWatch(t *testing.T) {
 				}
 				return
 			}
-			if bytes.Compare(data, want) != 0 {
+			if !bytes.Equal(data, want) {
 				t.Fatalf("received data from watch mismatch, want: %v, got %v", string(want), string(data))
 			}
 			lastRead = data
@@ -211,7 +242,6 @@ func TestClipboardWatch(t *testing.T) {
 }
 
 func BenchmarkClipboard(b *testing.B) {
-
 	b.Run("text", func(b *testing.B) {
 		data := []byte("golang.design/x/clipboard")
 
@@ -221,5 +251,47 @@ func BenchmarkClipboard(b *testing.B) {
 			clipboard.Write(clipboard.FmtText, data)
 			_ = clipboard.Read(clipboard.FmtText)
 		}
+	})
+}
+
+func TestClipboardNoCgo(t *testing.T) {
+	if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "1" {
+		t.Skip("CGO_ENABLED is set to 1")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows should always be tested")
+	}
+
+	t.Run("Read", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				return
+			}
+			t.Fatalf("expect to fail when CGO_ENABLED=0")
+		}()
+
+		clipboard.Read(clipboard.FmtText)
+	})
+
+	t.Run("Write", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				return
+			}
+			t.Fatalf("expect to fail when CGO_ENABLED=0")
+		}()
+
+		clipboard.Write(clipboard.FmtText, []byte("dummy"))
+	})
+
+	t.Run("Watch", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				return
+			}
+			t.Fatalf("expect to fail when CGO_ENABLED=0")
+		}()
+
+		clipboard.Watch(context.TODO(), clipboard.FmtText)
 	})
 }
