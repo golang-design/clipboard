@@ -17,7 +17,15 @@
 extern void syncStatus(uintptr_t handle, int status);
 
 int clipboard_test() {
-    Display *d = XOpenDisplay(0);
+    Display* d = NULL;
+    for (int i = 0; i < 42; i++) {
+        d = XOpenDisplay(0);
+        if (d == NULL) {
+            continue;
+        }
+        break;
+    }
+
     if (d == NULL) {
         return -1;
     }
@@ -69,7 +77,7 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
     XSelectionRequestEvent* xsr;
     int notified = 0;
     for (;;) {
-        if (notified == 0) { 
+        if (notified == 0) {
             syncStatus(handle, 1); // notify Go side
             notified = 1;
         }
@@ -105,7 +113,7 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
             ev.property  = xsr->property;
 
             if (ev.target == atomString && ev.target == target) {
-                R = XChangeProperty(ev.display, ev.requestor, ev.property, 
+                R = XChangeProperty(ev.display, ev.requestor, ev.property,
                     atomString, 8, PropModeReplace, buf, n);
             } else if (ev.target == atomImage && ev.target == target) {
                 R = XChangeProperty(ev.display, ev.requestor, ev.property,
