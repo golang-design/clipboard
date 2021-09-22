@@ -5,6 +5,7 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build android || ios || linux || darwin || windows
+// +build android ios linux darwin windows
 
 // This is a very basic example for verification purpose that
 // demonstrates how the golang.design/x/clipboard can interact

@@ -5,6 +5,7 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build cgo
+// +build cgo
 
 package clipboard_test
 

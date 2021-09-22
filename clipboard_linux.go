@@ -5,6 +5,7 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build linux && !android
+// +build linux,!android
 
 package clipboard
 
@@ -34,9 +35,10 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"runtime/cgo"
 	"time"
 	"unsafe"
+
+	"golang.design/x/clipboard/internal/cgo"
 )
 
 const errmsg = `Failed to initialize the X11 display, and the clipboard package

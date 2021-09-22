@@ -5,6 +5,7 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build darwin && !ios
+// +build darwin,!ios
 
 package clipboard
 
