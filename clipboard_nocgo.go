@@ -1,11 +1,11 @@
 //go:build !windows && !cgo
 // +build !windows,!cgo
 
-package
+package clipboard
 
 import "context"
 
-func test() bool {
+func initialize() error {
 	panic("clipboard: cannot use when CGO_ENABLED=0")
 }
 

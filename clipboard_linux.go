@@ -67,8 +67,6 @@ func initialize() error {
 	return nil
 }
 
-var canAccessClipbord = false
-
 func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtText:

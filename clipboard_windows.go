@@ -27,9 +27,7 @@ import (
 	"unsafe"
 )
 
-func test() bool {
-	return true
-}
+func initialize() error { return nil }
 
 // readText reads the clipboard and returns the text data if presents.
 // The caller is responsible for opening/closing the clipboard before
