@@ -23,6 +23,19 @@ func init() {
 	clipboard.Debug = true
 }
 
+func TestClipboardTest(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+	}
+	t.Run("test", func(t *testing.T) {
+		if !clipboard.Test() {
+			t.Fatalf("clipboard test failed")
+		}
+	})
+}
+
 func TestClipboard(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {

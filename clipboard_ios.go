@@ -26,6 +26,10 @@ import (
 	"unsafe"
 )
 
+func test() bool {
+	return true
+}
+
 func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtText:

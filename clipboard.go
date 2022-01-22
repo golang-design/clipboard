@@ -81,6 +81,10 @@ const (
 // guarantee one read at a time.
 var lock = sync.Mutex{}
 
+func Test() bool {
+	return test()
+}
+
 // Read returns a chunk of bytes of the clipboard data if it presents
 // in the desired format t presents. Otherwise, it returns nil.
 func Read(t Format) []byte {
