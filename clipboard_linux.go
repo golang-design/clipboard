@@ -41,7 +41,7 @@ import (
 	"golang.design/x/clipboard/internal/cgo"
 )
 
-const errmsg = `Failed to initialize the X11 display, and the clipboard package
+var helpmsg = `%w: Failed to initialize the X11 display, and the clipboard package
 will not work properly. Install the following dependency may help:
 
 	apt install -y libx11-dev
@@ -59,18 +59,17 @@ and initialize a virtual frame buffer:
 Then this package should be ready to use.
 `
 
-func test() bool {
+func initialize() error {
 	ok := C.clipboard_test()
-	return ok == 0
+	if !ok {
+		return fmt.Errorf(helpmsg, errUnavailable)
+	}
+	return nil
 }
 
 var canAccessClipbord = false
 
 func read(t Format) (buf []byte, err error) {
-	if !canAccessClipbord && !test() {
-		panic(errmsg)
-	}
-	canAccessClipbord = true
 	switch t {
 	case FmtText:
 		return readc("UTF8_STRING")
@@ -81,10 +80,6 @@ func read(t Format) (buf []byte, err error) {
 }
 
 func readc(t string) ([]byte, error) {
-	if !canAccessClipbord && !test() {
-		panic(errmsg)
-	}
-	canAccessClipbord = true
 	ct := C.CString(t)
 	defer C.free(unsafe.Pointer(ct))
 
@@ -105,10 +100,6 @@ func readc(t string) ([]byte, error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	if !canAccessClipbord && !test() {
-		panic(errmsg)
-	}
-	canAccessClipbord = true
 	var s string
 	switch t {
 	case FmtText:
@@ -143,17 +134,13 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 	status := <-start
 	if status < 0 {
-		return nil, errInvalidOperation
+		return nil, errUnavailable
 	}
 	// wait until enter event loop
 	return done, nil
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
-	if !canAccessClipbord && !test() {
-		panic(errmsg)
-	}
-	canAccessClipbord = true
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
 	last := Read(t)

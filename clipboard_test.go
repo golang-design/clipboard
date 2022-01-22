@@ -23,15 +23,16 @@ func init() {
 	clipboard.Debug = true
 }
 
-func TestClipboardTest(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
+func TestClipboardInit(t *testing.T) {
+	if val, ok := os.LookupEnv("CGO_ENABLED"); !ok || val != "0" {
+		t.Skip("CGO_ENABLED is set to 1")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not need to check for cgo")
 	}
 	t.Run("test", func(t *testing.T) {
-		if !clipboard.Test() {
-			t.Fatalf("clipboard test failed")
+		if err := clipboard.Init(); err != nil {
+			t.Fatal(err)
 		}
 	})
 }
@@ -268,7 +269,7 @@ func BenchmarkClipboard(b *testing.B) {
 }
 
 func TestClipboardNoCgo(t *testing.T) {
-	if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "1" {
+	if val, ok := os.LookupEnv("CGO_ENABLED"); !ok || val != "0" {
 		t.Skip("CGO_ENABLED is set to 1")
 	}
 	if runtime.GOOS == "windows" {

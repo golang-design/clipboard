@@ -59,10 +59,9 @@ import (
 
 var (
 	// activate only for running tests.
-	debug               = false
-	errUnavailable      = errors.New("clipboard unavailable")
-	errUnsupported      = errors.New("unsupported format")
-	errInvalidOperation = errors.New("invalid operation")
+	debug          = false
+	errUnavailable = errors.New("clipboard unavailable")
+	errUnsupported = errors.New("unsupported format")
 )
 
 // Format represents the format of clipboard data.
@@ -81,8 +80,20 @@ const (
 // guarantee one read at a time.
 var lock = sync.Mutex{}
 
-func Test() bool {
-	return test()
+// Init initializes the clipboard package. It returns an error
+// if the clipboard is not available to use. This may happen if the
+// target system lacks required dependency, such as libx11-dev in X11
+// environment. For example,
+//
+// 	err := clipboard.Init()
+// 	if err != nil {
+// 		...
+// 	}
+//
+// If Init returns an error, any subsequent Read/Write/Watch call
+// may result in an unrecoverable panic.
+func Init() error {
+	return initialize()
 }
 
 // Read returns a chunk of bytes of the clipboard data if it presents

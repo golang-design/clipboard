@@ -28,9 +28,7 @@ import (
 	"golang.org/x/mobile/app"
 )
 
-func test() bool {
-	return true
-}
+func initialize() error { return nil }
 
 func read(t Format) (buf []byte, err error) {
 	switch t {
@@ -48,9 +46,9 @@ func read(t Format) (buf []byte, err error) {
 		})
 		return []byte(s), nil
 	case FmtImage:
-		return nil, errors.New("unsupported")
+		return nil, errUnsupported
 	default:
-		return nil, errors.New("unsupported")
+		return nil, errUnsupported
 	}
 }
 
@@ -70,9 +68,9 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		})
 		return done, nil
 	case FmtImage:
-		return nil, errors.New("unsupported")
+		return nil, errUnsupported
 	default:
-		return nil, errors.New("unsupported")
+		return nil, errUnsupported
 	}
 }
 
