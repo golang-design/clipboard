@@ -43,6 +43,9 @@ func TestClipboardInit(t *testing.T) {
 		clipboard.Init()
 	})
 	t.Run("with-cgo", func(t *testing.T) {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
 		if runtime.GOOS != "linux" {
 			t.Skip("Only Linux may return error at the moment.")
 		}
