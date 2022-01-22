@@ -6,8 +6,14 @@
 
 /*
 Package clipboard provides cross platform clipboard access and supports
-macOS/Linux/Windows/Android/iOS platform. There are three major APIs
-to interact with the clipboard: `Read`, `Write`, and `Watch`.
+macOS/Linux/Windows/Android/iOS platform. Before interacting with the
+clipboard, one must call Init to assert if it is possible to use this
+package:
+
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
 
 The most common operations are `Read` and `Write`. To use them:
 
@@ -87,7 +93,7 @@ var lock = sync.Mutex{}
 //
 // 	err := clipboard.Init()
 // 	if err != nil {
-// 		...
+// 		panic(err)
 // 	}
 //
 // If Init returns an error, any subsequent Read/Write/Watch call

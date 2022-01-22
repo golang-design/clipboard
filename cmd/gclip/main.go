@@ -43,6 +43,13 @@ var (
 	file = flag.String("f", "", "source or destination to a given file path")
 )
 
+func init() {
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	flag.Usage = usage
 	flag.Parse()

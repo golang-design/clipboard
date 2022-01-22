@@ -61,7 +61,7 @@ Then this package should be ready to use.
 
 func initialize() error {
 	ok := C.clipboard_test()
-	if !ok {
+	if ok != 0 {
 		return fmt.Errorf(helpmsg, errUnavailable)
 	}
 	return nil
