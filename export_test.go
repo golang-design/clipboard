@@ -7,4 +7,7 @@
 package clipboard
 
 // for debugging errors
-var Debug = debug
+var (
+	Debug          = debug
+	ErrUnavailable = errUnavailable
+)

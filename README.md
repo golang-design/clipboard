@@ -16,9 +16,20 @@ import "golang.design/x/clipboard"
 
 ## API Usage
 
-Package `clipboard` provides three major APIs for manipulating the
-clipboard: `Read`, `Write`, and `Watch`. The most common operations are
-`Read` and `Write`. To use them, you can:
+Package clipboard provides cross platform clipboard access and supports
+macOS/Linux/Windows/Android/iOS platform. Before interacting with the
+clipboard, one must call Init to assert if it is possible to use this
+package:
+
+```go
+// Init returns an error if the package is not ready for use.
+err := clipboard.Init()
+if err != nil {
+      panic(err)
+}
+```
+
+The most common operations are `Read` and `Write`. To use them:
 
 ```go
 // write/read text format data of the clipboard, and

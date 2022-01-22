@@ -207,6 +207,13 @@ func (g *GclipApp) OnDraw() {
 	g.l.Draw(g.siz)
 }
 
+func init() {
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	app.Main(func(a app.App) {
 		gclip := GclipApp{app: a}

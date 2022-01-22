@@ -9,6 +9,7 @@ package clipboard_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image/png"
 	"os"
 	"reflect"
@@ -21,6 +22,38 @@ import (
 
 func init() {
 	clipboard.Debug = true
+}
+
+func TestClipboardInit(t *testing.T) {
+	t.Run("no-cgo", func(t *testing.T) {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); !ok || val != "0" {
+			t.Skip("CGO_ENABLED is set to 1")
+		}
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows does not need to check for cgo")
+		}
+
+		defer func() {
+			if r := recover(); r != nil {
+				return
+			}
+			t.Fatalf("expect to fail when CGO_ENABLED=0")
+		}()
+
+		clipboard.Init()
+	})
+	t.Run("with-cgo", func(t *testing.T) {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+		if runtime.GOOS != "linux" {
+			t.Skip("Only Linux may return error at the moment.")
+		}
+
+		if err := clipboard.Init(); err != nil && !errors.Is(err, clipboard.ErrUnavailable) {
+			t.Fatalf("expect ErrUnavailable, but got: %v", err)
+		}
+	})
 }
 
 func TestClipboard(t *testing.T) {
@@ -255,7 +288,7 @@ func BenchmarkClipboard(b *testing.B) {
 }
 
 func TestClipboardNoCgo(t *testing.T) {
-	if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "1" {
+	if val, ok := os.LookupEnv("CGO_ENABLED"); !ok || val != "0" {
 		t.Skip("CGO_ENABLED is set to 1")
 	}
 	if runtime.GOOS == "windows" {

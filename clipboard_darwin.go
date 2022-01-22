@@ -28,6 +28,8 @@ import (
 	"unsafe"
 )
 
+func initialize() error { return nil }
+
 func read(t Format) (buf []byte, err error) {
 	var (
 		data unsafe.Pointer
@@ -68,9 +70,11 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			ok = C.clipboard_write_image(unsafe.Pointer(&buf[0]),
 				C.NSInteger(len(buf)))
 		}
+	default:
+		return nil, errUnsupported
 	}
 	if ok != 0 {
-		return nil, errInvalidOperation
+		return nil, errUnavailable
 	}
 
 	// use unbuffered data to prevent goroutine leak

@@ -7,7 +7,6 @@
 package main // go install golang.design/x/clipboard/cmd/gclip@latest
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -44,9 +43,12 @@ var (
 	file = flag.String("f", "", "source or destination to a given file path")
 )
 
-var (
-	errUnsupported = errors.New("unsupported data format")
-)
+func init() {
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
+}
 
 func main() {
 	flag.Usage = usage

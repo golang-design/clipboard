@@ -18,17 +18,32 @@ import (
 )
 
 func ExampleWrite() {
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
+
 	clipboard.Write(clipboard.FmtText, []byte("Hello, 世界"))
 	// Output:
 }
 
 func ExampleRead() {
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println(string(clipboard.Read(clipboard.FmtText)))
 	// Output:
 	// Hello, 世界
 }
 
 func ExampleWatch() {
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
 

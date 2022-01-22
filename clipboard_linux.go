@@ -41,7 +41,7 @@ import (
 	"golang.design/x/clipboard/internal/cgo"
 )
 
-const errmsg = `Failed to initialize the X11 display, and the clipboard package
+var helpmsg = `%w: Failed to initialize the X11 display, and the clipboard package
 will not work properly. Install the following dependency may help:
 
 	apt install -y libx11-dev
@@ -59,11 +59,12 @@ and initialize a virtual frame buffer:
 Then this package should be ready to use.
 `
 
-func init() {
+func initialize() error {
 	ok := C.clipboard_test()
-	if ok < 0 {
-		panic(errmsg)
+	if ok != 0 {
+		return fmt.Errorf(helpmsg, errUnavailable)
 	}
+	return nil
 }
 
 func read(t Format) (buf []byte, err error) {
@@ -97,7 +98,6 @@ func readc(t string) ([]byte, error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-
 	var s string
 	switch t {
 	case FmtText:
@@ -132,7 +132,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 	status := <-start
 	if status < 0 {
-		return nil, errInvalidOperation
+		return nil, errUnavailable
 	}
 	// wait until enter event loop
 	return done, nil

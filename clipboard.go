@@ -6,8 +6,14 @@
 
 /*
 Package clipboard provides cross platform clipboard access and supports
-macOS/Linux/Windows/Android/iOS platform. There are three major APIs
-to interact with the clipboard: `Read`, `Write`, and `Watch`.
+macOS/Linux/Windows/Android/iOS platform. Before interacting with the
+clipboard, one must call Init to assert if it is possible to use this
+package:
+
+	err := clipboard.Init()
+	if err != nil {
+		panic(err)
+	}
 
 The most common operations are `Read` and `Write`. To use them:
 
@@ -59,10 +65,9 @@ import (
 
 var (
 	// activate only for running tests.
-	debug               = false
-	errUnavailable      = errors.New("clipboard unavailable")
-	errUnsupported      = errors.New("unsupported format")
-	errInvalidOperation = errors.New("invalid operation")
+	debug          = false
+	errUnavailable = errors.New("clipboard unavailable")
+	errUnsupported = errors.New("unsupported format")
 )
 
 // Format represents the format of clipboard data.
@@ -80,6 +85,22 @@ const (
 // concurrent read can even cause panic, use a global lock to
 // guarantee one read at a time.
 var lock = sync.Mutex{}
+
+// Init initializes the clipboard package. It returns an error
+// if the clipboard is not available to use. This may happen if the
+// target system lacks required dependency, such as libx11-dev in X11
+// environment. For example,
+//
+// 	err := clipboard.Init()
+// 	if err != nil {
+// 		panic(err)
+// 	}
+//
+// If Init returns an error, any subsequent Read/Write/Watch call
+// may result in an unrecoverable panic.
+func Init() error {
+	return initialize()
+}
 
 // Read returns a chunk of bytes of the clipboard data if it presents
 // in the desired format t presents. Otherwise, it returns nil.
