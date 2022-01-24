@@ -10,14 +10,11 @@
 package clipboard
 
 /*
-#cgo LDFLAGS: -lX11
+#cgo LDFLAGS: -ldl
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <X11/Xlib.h>
-#include <X11/Xatom.h>
-#include <stdatomic.h>
 
 int clipboard_test();
 int clipboard_write(
