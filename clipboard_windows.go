@@ -15,6 +15,7 @@ package clipboard
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
@@ -25,6 +26,8 @@ import (
 	"time"
 	"unicode/utf16"
 	"unsafe"
+
+	"golang.org/x/image/bmp"
 )
 
 func initialize() error { return nil }
@@ -154,6 +157,53 @@ func readImage() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func readImageDib() ([]byte, error) {
+	const (
+		fileHeaderLen = 14
+		infoHeaderLen = 40
+	)
+
+	hClipDat, _, err := getClipboardData.Call(cFmtDIB)
+	pMemBlk, _, err := gLock.Call(hClipDat)
+	if pMemBlk == 0 {
+		return nil, fmt.Errorf("failed to call global lock: " + err.Error())
+	}
+	defer gUnlock.Call(hClipDat)
+
+	bmpHeader := (*bitmapHeader)(unsafe.Pointer(pMemBlk))
+	dataSize := bmpHeader.SizeImage + fileHeaderLen + infoHeaderLen
+
+	if bmpHeader.SizeImage == 0 && bmpHeader.Compression == 0 {
+		iSizeImage := bmpHeader.Height * ((bmpHeader.Width*uint32(bmpHeader.BitCount)/8 + 3) &^ 3)
+		dataSize += iSizeImage
+	}
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, uint16('B')|(uint16('M')<<8))
+	binary.Write(buf, binary.LittleEndian, uint32(dataSize))
+	binary.Write(buf, binary.LittleEndian, uint32(0))
+	const sizeof_colorbar = 0
+	binary.Write(buf, binary.LittleEndian, uint32(fileHeaderLen+infoHeaderLen+sizeof_colorbar))
+	j := 0
+	for i := fileHeaderLen; i < int(dataSize); i++ {
+		binary.Write(buf, binary.BigEndian, *(*byte)(unsafe.Pointer(pMemBlk + uintptr(j))))
+		j++
+	}
+	return bmpToPng(buf)
+}
+
+func bmpToPng(bmpBuf *bytes.Buffer) (buf []byte, err error) {
+	var f bytes.Buffer
+	original_image, err := bmp.Decode(bmpBuf)
+	if err != nil {
+		return nil, err
+	}
+	err = png.Encode(&f, original_image)
+	if err != nil {
+		return nil, err
+	}
+	return f.Bytes(), nil
+}
+
 func writeImage(buf []byte) error {
 	r, _, err := emptyClipboard.Call()
 	if r == 0 {
@@ -262,6 +312,8 @@ func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtImage:
 		format = cFmtDIBV5
+	case FmtImageDib:
+		format = cFmtDIB
 	case FmtText:
 		fallthrough
 	default:
@@ -287,6 +339,8 @@ func read(t Format) (buf []byte, err error) {
 	switch format {
 	case cFmtDIBV5:
 		return readImage()
+	case cFmtDIB:
+		return readImageDib()
 	case cFmtUnicodeText:
 		fallthrough
 	default:
@@ -386,9 +440,10 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 }
 
 const (
+	cFmtBitmap      = 2 // Win+PrintScreen
+	cFmtDIB         = 8
 	cFmtUnicodeText = 13
 	cFmtDIBV5       = 17
-	cFmtBitmap      = 2 // Win+PrintScreen
 	// Screenshot taken from special shortcut is in different format (why??), see:
 	// https://jpsoft.com/forums/threads/detecting-clipboard-format.5225/
 	cFmtDataObject = 49161 // Shift+Win+s, returned from enumClipboardFormats
@@ -426,6 +481,20 @@ type bitmapV5Header struct {
 	ProfileData uint32
 	ProfileSize uint32
 	Reserved    uint32
+}
+
+type bitmapHeader struct {
+	Size          uint32
+	Width         uint32
+	Height        uint32
+	PLanes        uint16
+	BitCount      uint16
+	Compression   uint32
+	SizeImage     uint32
+	XPelsPerMeter uint32
+	YPelsPerMeter uint32
+	ClrUsed       uint32
+	ClrImportant  uint32
 }
 
 // Calling a Windows DLL, see:
