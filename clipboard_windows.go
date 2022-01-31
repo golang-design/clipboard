@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -110,7 +111,8 @@ func writeText(buf []byte) error {
 func readImage() ([]byte, error) {
 	hMem, _, err := getClipboardData.Call(cFmtDIBV5)
 	if hMem == 0 {
-		return nil, err
+		// second chance to try FmtDIB
+		return readImageDib()
 	}
 	p, _, err := gLock.Call(hMem)
 	if p == 0 {
@@ -161,12 +163,16 @@ func readImageDib() ([]byte, error) {
 	const (
 		fileHeaderLen = 14
 		infoHeaderLen = 40
+		cFmtDIB       = 8
 	)
 
 	hClipDat, _, err := getClipboardData.Call(cFmtDIB)
+	if err != nil {
+		return nil, errors.New("not dib format data: " + err.Error())
+	}
 	pMemBlk, _, err := gLock.Call(hClipDat)
 	if pMemBlk == 0 {
-		return nil, fmt.Errorf("failed to call global lock: " + err.Error())
+		return nil, errors.New("failed to call global lock: " + err.Error())
 	}
 	defer gUnlock.Call(hClipDat)
 
@@ -312,8 +318,6 @@ func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtImage:
 		format = cFmtDIBV5
-	case FmtImageDib:
-		format = cFmtDIB
 	case FmtText:
 		fallthrough
 	default:
@@ -339,8 +343,6 @@ func read(t Format) (buf []byte, err error) {
 	switch format {
 	case cFmtDIBV5:
 		return readImage()
-	case cFmtDIB:
-		return readImageDib()
 	case cFmtUnicodeText:
 		fallthrough
 	default:
@@ -441,7 +443,6 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 
 const (
 	cFmtBitmap      = 2 // Win+PrintScreen
-	cFmtDIB         = 8
 	cFmtUnicodeText = 13
 	cFmtDIBV5       = 17
 	// Screenshot taken from special shortcut is in different format (why??), see:
