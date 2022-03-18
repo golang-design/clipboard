@@ -21,7 +21,6 @@ import "C"
 import (
 	"bytes"
 	"context"
-	"errors"
 	"time"
 	"unsafe"
 )
