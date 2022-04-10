@@ -81,10 +81,14 @@ const (
 	FmtImage
 )
 
-// Due to the limitation on operating systems (such as darwin),
-// concurrent read can even cause panic, use a global lock to
-// guarantee one read at a time.
-var lock = sync.Mutex{}
+var (
+	// Due to the limitation on operating systems (such as darwin),
+	// concurrent read can even cause panic, use a global lock to
+	// guarantee one read at a time.
+	lock = sync.Mutex{}
+	initOnce sync.Once
+	initError error
+)
 
 // Init initializes the clipboard package. It returns an error
 // if the clipboard is not available to use. This may happen if the
@@ -99,7 +103,10 @@ var lock = sync.Mutex{}
 // If Init returns an error, any subsequent Read/Write/Watch call
 // may result in an unrecoverable panic.
 func Init() error {
-	return initialize()
+	initOnce.Do(func() {
+		initError = initialize()
+	})
+	return initError
 }
 
 // Read returns a chunk of bytes of the clipboard data if it presents
