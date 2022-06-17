@@ -21,10 +21,10 @@ import "C"
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"golang.org/x/mobile/app"
 	"time"
 	"unsafe"
-
-	"golang.org/x/mobile/app"
 )
 
 func initialize() error { return nil }
@@ -33,7 +33,7 @@ func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtText:
 		s := ""
-		app.RunOnJVM(func(vm, env, ctx uintptr) error {
+		err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
 			cs := C.clipboard_read_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx))
 			if cs == nil {
 				return nil
@@ -43,6 +43,9 @@ func read(t Format) (buf []byte, err error) {
 			C.free(unsafe.Pointer(cs))
 			return nil
 		})
+		if err != nil {
+			fmt.Println("clipboard read error", err)
+		}
 		return []byte(s), nil
 	case FmtImage:
 		return nil, errUnsupported
@@ -60,11 +63,14 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		cs := C.CString(string(buf))
 		defer C.free(unsafe.Pointer(cs))
 
-		app.RunOnJVM(func(vm, env, ctx uintptr) error {
+		err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
 			C.clipboard_write_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx), cs)
 			done <- struct{}{}
 			return nil
 		})
+		if err != nil {
+			fmt.Println("clipboard write error", err)
+		}
 		return done, nil
 	case FmtImage:
 		return nil, errUnsupported
