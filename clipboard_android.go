@@ -21,7 +21,6 @@ import "C"
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"time"
 	"unsafe"
 
@@ -101,13 +100,4 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 		}
 	}()
 	return recv
-}
-
-type infoWriter struct{}
-
-func (infoWriter) Write(p []byte) (n int, err error) {
-	cstr := C.CString(string(p))
-	C.__android_log_write(C.ANDROID_LOG_INFO, ctag, cstr)
-	C.free(unsafe.Pointer(cstr))
-	return len(p), nil
 }
