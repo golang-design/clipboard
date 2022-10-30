@@ -33,7 +33,7 @@ func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtText:
 		s := ""
-		app.RunOnJVM(func(vm, env, ctx uintptr) error {
+		if err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
 			cs := C.clipboard_read_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx))
 			if cs == nil {
 				return nil
@@ -42,7 +42,9 @@ func read(t Format) (buf []byte, err error) {
 			s = C.GoString(cs)
 			C.free(unsafe.Pointer(cs))
 			return nil
-		})
+		}); err != nil {
+			return nil, err
+		}
 		return []byte(s), nil
 	case FmtImage:
 		return nil, errUnsupported
@@ -60,11 +62,13 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		cs := C.CString(string(buf))
 		defer C.free(unsafe.Pointer(cs))
 
-		app.RunOnJVM(func(vm, env, ctx uintptr) error {
+		if err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
 			C.clipboard_write_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx), cs)
 			done <- struct{}{}
 			return nil
-		})
+		}); err != nil {
+			return nil, err
+		}
 		return done, nil
 	case FmtImage:
 		return nil, errUnsupported
