@@ -22,9 +22,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"golang.org/x/mobile/app"
 	"time"
 	"unsafe"
+
+	"golang.org/x/mobile/app"
 )
 
 func initialize() error { return nil }
@@ -33,7 +34,7 @@ func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtText:
 		s := ""
-		err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
+		if err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
 			cs := C.clipboard_read_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx))
 			if cs == nil {
 				return nil
@@ -42,9 +43,8 @@ func read(t Format) (buf []byte, err error) {
 			s = C.GoString(cs)
 			C.free(unsafe.Pointer(cs))
 			return nil
-		})
-		if err != nil {
-			fmt.Println("clipboard read error", err)
+		}); err != nil {
+			return nil, err
 		}
 		return []byte(s), nil
 	case FmtImage:
@@ -63,13 +63,12 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		cs := C.CString(string(buf))
 		defer C.free(unsafe.Pointer(cs))
 
-		err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
+		if err := app.RunOnJVM(func(vm, env, ctx uintptr) error {
 			C.clipboard_write_string(C.uintptr_t(vm), C.uintptr_t(env), C.uintptr_t(ctx), cs)
 			done <- struct{}{}
 			return nil
-		})
-		if err != nil {
-			fmt.Println("clipboard write error", err)
+		}); err != nil {
+			return nil, err
 		}
 		return done, nil
 	case FmtImage:
@@ -102,4 +101,13 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 		}
 	}()
 	return recv
+}
+
+type infoWriter struct{}
+
+func (infoWriter) Write(p []byte) (n int, err error) {
+	cstr := C.CString(string(p))
+	C.__android_log_write(C.ANDROID_LOG_INFO, ctag, cstr)
+	C.free(unsafe.Pointer(cstr))
+	return len(p), nil
 }
