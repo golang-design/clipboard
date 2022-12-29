@@ -24,3 +24,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 func watch(ctx context.Context, t Format) <-chan []byte {
 	panic("clipboard: cannot use when CGO_ENABLED=0")
 }
+
+func register(h Handler) error {
+	panic("clipboard: cannot use when CGO_ENABLED=0")
+}
