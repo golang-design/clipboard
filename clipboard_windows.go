@@ -242,7 +242,7 @@ func writeImage(buf []byte) error {
 			// yhat := int(height) - y
 			// r, g, b, a := img.At(xhat, yhat).RGBA()
 
-			r, g, b, a := img.At(x, height-y).RGBA()
+			r, g, b, a := img.At(x, height-1-y).RGBA()
 			data[idx+2] = uint8(r)
 			data[idx+1] = uint8(g)
 			data[idx+0] = uint8(b)
