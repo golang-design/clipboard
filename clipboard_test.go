@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"image"
 	"image/color"
 	"image/png"
 	"os"
@@ -97,19 +96,18 @@ func TestClipboard(t *testing.T) {
 		incorrect := 0
 		for i := 0; i < w; i++ {
 			for j := 0; j < h; j++ {
-				var want, got color.Color
-				switch img1.(type) {
-				case *image.RGBA:
-					want = img1.(*image.RGBA).RGBA64At(i, j)
-				case *image.NRGBA:
-					want = img1.(*image.NRGBA).RGBA64At(i, j)
-				}
-				switch img2.(type) {
-				case *image.RGBA:
-					got = img2.(*image.RGBA).RGBA64At(i, j)
-				case *image.NRGBA:
-					got = img2.(*image.NRGBA).RGBA64At(i, j)
-				}
+				want := color.RGBA{}
+				wr, wg, wb, wa := img1.At(i, j).RGBA()
+				want.R = uint8(wr)
+				want.G = uint8(wg)
+				want.B = uint8(wb)
+				want.A = uint8(wa)
+				got := color.RGBA{}
+				gr, gg, gb, ga := img2.At(i, j).RGBA()
+				got.R = uint8(gr)
+				got.G = uint8(gg)
+				got.B = uint8(gb)
+				got.A = uint8(ga)
 
 				if !reflect.DeepEqual(want, got) {
 					t.Logf("read data from clipbaord is inconsistent with previous written data, pix: (%d,%d), got: %+v, want: %+v", i, j, got, want)
