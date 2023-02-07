@@ -145,7 +145,7 @@ func readImage() ([]byte, error) {
 			// xhat := (x + int(info.Width-3)) % int(info.Width)
 
 			xhat := (x + int(info.Width)) % int(info.Width)
-			yhat := int(info.Height) - y
+			yhat := int(info.Height) - 1 - y
 			r := data[idx+2]
 			g := data[idx+1]
 			b := data[idx+0]
