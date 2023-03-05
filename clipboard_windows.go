@@ -139,11 +139,6 @@ func readImage() ([]byte, error) {
 	for y := 0; y < int(info.Height); y++ {
 		for x := 0; x < int(info.Width); x++ {
 			idx := offset + 4*(y*stride+x)
-
-			// FIXME: It seems that reading from clipboard data causes 3 pixels
-			// offset. I don't have a clear evidence on the root reason yet.
-			// xhat := (x + int(info.Width-3)) % int(info.Width)
-
 			xhat := (x + int(info.Width)) % int(info.Width)
 			yhat := int(info.Height) - 1 - y
 			r := data[idx+2]
@@ -235,13 +230,6 @@ func writeImage(buf []byte) error {
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			idx := int(offset) + 4*(y*width+x)
-
-			// FIXME: It seems that reading from clipboard data causes 3 pixels
-			// offset. I don't have a clear evidence on the root reason yet.
-			// xhat := (x + int(width) - 3) % int(width)
-			// yhat := int(height) - y
-			// r, g, b, a := img.At(xhat, yhat).RGBA()
-
 			r, g, b, a := img.At(x, height-1-y).RGBA()
 			data[idx+2] = uint8(r)
 			data[idx+1] = uint8(g)
