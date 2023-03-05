@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image/color"
 	"image/png"
 	"os"
 	"reflect"
@@ -95,8 +96,20 @@ func TestClipboard(t *testing.T) {
 		incorrect := 0
 		for i := 0; i < w; i++ {
 			for j := 0; j < h; j++ {
-				want := img1.At(i, j)
-				got := img2.At(i, j)
+				wr, wg, wb, wa := img1.At(i, j).RGBA()
+				gr, gg, gb, ga := img2.At(i, j).RGBA()
+				want := color.RGBA{
+					R: uint8(wr),
+					G: uint8(wg),
+					B: uint8(wb),
+					A: uint8(wa),
+				}
+				got := color.RGBA{
+					R: uint8(gr),
+					G: uint8(gg),
+					B: uint8(gb),
+					A: uint8(ga),
+				}
 
 				if !reflect.DeepEqual(want, got) {
 					t.Logf("read data from clipbaord is inconsistent with previous written data, pix: (%d,%d), got: %+v, want: %+v", i, j, got, want)
@@ -105,9 +118,7 @@ func TestClipboard(t *testing.T) {
 			}
 		}
 
-		// FIXME: it looks like windows can produce incorrect pixels when y == 0.
-		// Needs more investigation.
-		if incorrect > w {
+		if incorrect > 0 {
 			t.Fatalf("read data from clipboard contains too much inconsistent pixels to the previous written data, number of incorrect pixels: %v", incorrect)
 		}
 	})
