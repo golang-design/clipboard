@@ -32,10 +32,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/cgo"
 	"time"
 	"unsafe"
-
-	"golang.design/x/clipboard/internal/cgo"
 )
 
 var helpmsg = `%w: Failed to initialize the X11 display, and the clipboard package
