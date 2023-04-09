@@ -86,8 +86,6 @@ func (l *Label) SetLabel(s string) {
 }
 
 const (
-	fontWidth  = 5
-	fontHeight = 7
 	lineWidth  = 100
 	lineHeight = 120
 )
