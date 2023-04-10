@@ -159,10 +159,6 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	return recv
 }
 
-type syncChan struct {
-	c chan int
-}
-
 //export syncStatus
 func syncStatus(h uintptr, val int) {
 	v := cgo.Handle(h).Value().(chan int)
