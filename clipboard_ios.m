@@ -5,7 +5,6 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build ios
-// +build ios
 
 #import <UIKit/UIKit.h>
 #import <MobileCoreServices/MobileCoreServices.h>
