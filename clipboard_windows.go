@@ -5,7 +5,6 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build windows
-// +build windows
 
 package clipboard
 

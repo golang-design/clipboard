@@ -5,7 +5,6 @@
 // Written by Changkun Ou <changkun.de>
 
 //go:build darwin && !ios
-// +build darwin,!ios
 
 // Interact with NSPasteboard using Objective-C
 // https://developer.apple.com/documentation/appkit/nspasteboard?language=objc
