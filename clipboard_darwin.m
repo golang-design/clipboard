@@ -28,8 +28,16 @@ unsigned int clipboard_read_image(void **out) {
 	NSPasteboard * pasteboard = [NSPasteboard generalPasteboard];
 	NSData *data = [pasteboard dataForType:NSPasteboardTypePNG];
 	if (data == nil) {
-		return 0;
-	}
+        data = [pasteboard dataForType:NSPasteboardTypeTIFF];
+        if (data == nil) {
+            return 0;
+        }
+        NSBitmapImageRep *bitmap = [NSBitmapImageRep imageRepWithData: data];
+        if (bitmap == nil) {
+            return 0;
+        }
+        data = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties: @{}];
+    }
 	NSUInteger siz = [data length];
 	*out = malloc(siz);
 	[data getBytes: *out length: siz];
