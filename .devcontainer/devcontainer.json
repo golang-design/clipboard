@@ -1,0 +1,14 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/go
+{
+	"name": "golang.design: clipboard",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"args": {
+			"VARIANT": "1.21-bookworm"
+		}
+	},
+	// Install dependencies and other setup tasks
+	"postCreateCommand": ".devcontainer/setup.sh",
+	"remoteUser": "vscode"
+}
