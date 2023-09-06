@@ -382,7 +382,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		cnt, _, _ := getClipboardSequenceNumber.Call()
 		errch <- nil
 		for {
-			time.Sleep(time.Second)
+			time.Sleep(poll_interval)
 			cur, _, _ := getClipboardSequenceNumber.Call()
 			if cur != cnt {
 				changed <- struct{}{}
@@ -403,7 +403,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	ready := make(chan struct{})
 	go func() {
 		// not sure if we are too slow or the user too fast :)
-		ti := time.NewTicker(time.Second)
+		ti := time.NewTicker(poll_interval)
 		cnt, _, _ := getClipboardSequenceNumber.Call()
 		ready <- struct{}{}
 		for {
