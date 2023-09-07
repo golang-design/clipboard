@@ -61,6 +61,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
 var (
@@ -68,6 +69,7 @@ var (
 	debug          = false
 	errUnavailable = errors.New("clipboard unavailable")
 	errUnsupported = errors.New("unsupported format")
+	poll_interval  = time.Second
 )
 
 // Format represents the format of clipboard data.
@@ -107,6 +109,13 @@ func Init() error {
 		initError = initialize()
 	})
 	return initError
+}
+
+// Sets the time between checking for clipboard updates
+// in the Watch function and for Write's changed channel (on some platforms)
+// the interval is by default 1 second
+func SetPollingInterval(interval time.Duration) {
+	poll_interval = interval
 }
 
 // Read returns a chunk of bytes of the clipboard data if it presents

@@ -78,7 +78,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 func watch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
-	ti := time.NewTicker(time.Second)
+	ti := time.NewTicker(poll_interval)
 	last := Read(t)
 	go func() {
 		for {
