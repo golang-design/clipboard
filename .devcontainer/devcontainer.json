@@ -3,6 +3,7 @@
 {
 	"name": "golang.design: clipboard",
 	"build": {
+		"context": "..",
 		"dockerfile": "Dockerfile",
 		"args": {
 			"VARIANT": "1.21-bookworm"
@@ -10,5 +11,7 @@
 	},
 	// Install dependencies and other setup tasks
 	"postCreateCommand": ".devcontainer/setup.sh",
+	// Allow the Dockerfile's command to run (creates virtual display for X11 to support clipboard)
+	"overrideCommand": false,
 	"remoteUser": "vscode"
 }
