@@ -171,7 +171,7 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
                 // Reply atoms for supported targets, other clients should
                 // request the clipboard again and obtain the data if their
                 // implementation is correct.
-                Atom targets[] = { atomString, atomImage };
+                Atom targets[] = { targetsAtom, target };
                 R = (*P_XChangeProperty)(ev.display, ev.requestor, ev.property,
                     XA_ATOM, 32, PropModeReplace,
                     (unsigned char *)&targets, sizeof(targets)/sizeof(Atom));
