@@ -123,33 +123,60 @@ func readImage() ([]byte, error) {
 	info := (*bitmapV5Header)(unsafe.Pointer(p))
 
 	// maybe deal with other formats?
-	if info.BitCount != 32 {
-		return nil, errUnsupported
-	}
-
-	var data []byte
-	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
-	sh.Data = uintptr(p)
-	sh.Cap = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
-	sh.Len = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
-	img := image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
-	offset := int(info.Size)
-	stride := int(info.Width)
-	for y := 0; y < int(info.Height); y++ {
-		for x := 0; x < int(info.Width); x++ {
-			idx := offset + 4*(y*stride+x)
-			xhat := (x + int(info.Width)) % int(info.Width)
-			yhat := int(info.Height) - 1 - y
-			r := data[idx+2]
-			g := data[idx+1]
-			b := data[idx+0]
-			a := data[idx+3]
-			img.SetRGBA(xhat, yhat, color.RGBA{r, g, b, a})
+	var img *image.RGBA
+	switch info.BitCount {
+	case 32:
+		// existing 32-bit handling code
+		var data []byte
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+		sh.Data = uintptr(p)
+		sh.Cap = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
+		sh.Len = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
+		img = image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
+		offset := int(info.Size)
+		stride := int(info.Width)
+		for y := 0; y < int(info.Height); y++ {
+			for x := 0; x < int(info.Width); x++ {
+				idx := offset + 4*(y*stride+x)
+				xhat := (x + int(info.Width)) % int(info.Width)
+				yhat := int(info.Height) - 1 - y
+				r := data[idx+2]
+				g := data[idx+1]
+				b := data[idx+0]
+				a := data[idx+3]
+				img.SetRGBA(xhat, yhat, color.RGBA{r, g, b, a})
+			}
 		}
+	case 24:
+		// new 24-bit handling code
+		var data []byte
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+		sh.Data = uintptr(p)
+		sh.Cap = int(info.Size + 3*uint32(info.Width)*uint32(info.Height))
+		sh.Len = int(info.Size + 3*uint32(info.Width)*uint32(info.Height))
+		img = image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
+		offset := int(info.Size)
+		stride := (int(info.Width)*3 + 3) &^ 3 // ensure stride is a multiple of 4
+		for y := 0; y < int(info.Height); y++ {
+			for x := 0; x < int(info.Width); x++ {
+				idx := offset + y*stride + x*3
+				xhat := (x + int(info.Width)) % int(info.Width)
+				yhat := int(info.Height) - 1 - y
+				r := data[idx+2]
+				g := data[idx+1]
+				b := data[idx+0]
+				img.SetRGBA(xhat, yhat, color.RGBA{r, g, b, 255})
+			}
+		}
+	default:
+		return nil, errUnsupported
 	}
 	// always use PNG encoding.
 	var buf bytes.Buffer
-	png.Encode(&buf, img)
+	err = png.Encode(&buf, img)
+	if err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
 
