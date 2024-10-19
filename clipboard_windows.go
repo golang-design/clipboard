@@ -323,6 +323,34 @@ func writeImage(buf []byte) error {
 	return nil
 }
 
+// readFilePath reads the clipboard and returns the file path if a file or folder is copied.
+// The caller is responsible for opening/closing the clipboard before calling this function.
+func readFilePath() ([]byte, error) {
+	hMem, _, err := getClipboardData.Call(uintptr(cFmtHDrop))
+	if hMem == 0 {
+		return nil, err
+	}
+
+	pMem, _, err := gLock.Call(hMem)
+	if pMem == 0 {
+		return nil, err
+	}
+	defer gLock.Call(hMem)
+
+	// Get the number of files
+	nFiles, _, _ := dragQueryFile.Call(pMem, 0xFFFFFFFF, 0, 0)
+	if nFiles == 0 {
+		return nil, syscall.EINVAL
+	}
+
+	// We're only interested in the first file
+	bufLen, _, _ := dragQueryFile.Call(pMem, 0, 0, 0)
+	buf := make([]uint16, bufLen+1)
+	dragQueryFile.Call(pMem, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+
+	return []byte(syscall.UTF16ToString(buf)), nil
+}
+
 func read(t Format) (buf []byte, err error) {
 	// On Windows, OpenClipboard and CloseClipboard must be executed on
 	// the same thread. Thus, lock the OS thread for further execution.
@@ -332,10 +360,16 @@ func read(t Format) (buf []byte, err error) {
 	var format uintptr
 	switch t {
 	case FmtImage:
+
 		format = cFmtDIBV5
 	case FmtText:
-		fallthrough
+
+		format = cFmtUnicodeText
+	case FmtHDrop:
+
+		format = cFmtHDrop
 	default:
+
 		format = cFmtUnicodeText
 	}
 
@@ -357,10 +391,16 @@ func read(t Format) (buf []byte, err error) {
 
 	switch format {
 	case cFmtDIBV5:
+
 		return readImage()
 	case cFmtUnicodeText:
-		fallthrough
+
+		return readText()
+	case cFmtHDrop:
+
+		return readFilePath()
 	default:
+
 		return readText()
 	}
 }
@@ -459,6 +499,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 const (
 	cFmtBitmap      = 2 // Win+PrintScreen
 	cFmtUnicodeText = 13
+	cFmtHDrop       = 15 // CF_HDROP
 	cFmtDIBV5       = 17
 	// Screenshot taken from special shortcut is in different format (why??), see:
 	// https://jpsoft.com/forums/threads/detecting-clipboard-format.5225/
@@ -576,4 +617,7 @@ var (
 	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalfree
 	gFree   = kernel32.NewProc("GlobalFree")
 	memMove = kernel32.NewProc("RtlMoveMemory")
+
+	shell32       = syscall.NewLazyDLL("shell32.dll")
+	dragQueryFile = shell32.NewProc("DragQueryFileW")
 )
