@@ -148,24 +148,25 @@ func readImage() ([]byte, error) {
 			}
 		}
 	case 24:
-		// new 24-bit handling code
+		// updated 24-bit handling code
 		var data []byte
 		sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
 		sh.Data = uintptr(p)
-		sh.Cap = int(info.Size + 3*uint32(info.Width)*uint32(info.Height))
-		sh.Len = int(info.Size + 3*uint32(info.Width)*uint32(info.Height))
+		stride := (int(info.Width)*3 + 3) &^ 3 // ensure stride is a multiple of 4
+		dataSize := int(info.Size) + stride*int(info.Height)
+		sh.Cap = dataSize
+		sh.Len = dataSize
 		img = image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
 		offset := int(info.Size)
-		stride := (int(info.Width)*3 + 3) &^ 3 // ensure stride is a multiple of 4
 		for y := 0; y < int(info.Height); y++ {
 			for x := 0; x < int(info.Width); x++ {
 				idx := offset + y*stride + x*3
-				xhat := (x + int(info.Width)) % int(info.Width)
-				yhat := int(info.Height) - 1 - y
-				r := data[idx+2]
-				g := data[idx+1]
-				b := data[idx+0]
-				img.SetRGBA(xhat, yhat, color.RGBA{r, g, b, 255})
+				if idx+2 < len(data) {
+					r := data[idx+2]
+					g := data[idx+1]
+					b := data[idx+0]
+					img.SetRGBA(x, int(info.Height)-1-y, color.RGBA{r, g, b, 255})
+				}
 			}
 		}
 	default:
