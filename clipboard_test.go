@@ -35,7 +35,7 @@ func TestClipboardInit(t *testing.T) {
 		}
 
 		if err := clipboard.Init(); err != nil && !errors.Is(err, clipboard.ErrNoCGOCannotUse) {
-			t.Fatalf("expect 'clipboard: cannot use when CGO_ENABLED=0', but got: %v", err)
+			t.Fatalf("expect ErrNoCGOCannotUse, but got: %v", err)
 		}
 	})
 	t.Run("with-cgo", func(t *testing.T) {
