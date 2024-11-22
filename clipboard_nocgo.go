@@ -7,8 +7,12 @@ import (
 	"errors"
 )
 
+var (
+	ErrNoCGOCannotUse = errors.New("clipboard: cannot use when CGO_ENABLED=0")
+)
+
 func initialize() error {
-	return errors.New("clipboard: cannot use when CGO_ENABLED=0")
+	return ErrNoCGOCannotUse
 }
 
 func read(t Format) (buf []byte, err error) {

@@ -34,14 +34,9 @@ func TestClipboardInit(t *testing.T) {
 			t.Skip("Windows does not need to check for cgo")
 		}
 
-		defer func() {
-			if r := recover(); r != nil {
-				return
-			}
-			t.Fatalf("expect to fail when CGO_ENABLED=0")
-		}()
-
-		clipboard.Init()
+		if err := clipboard.Init(); err != nil && !errors.Is(err, clipboard.ErrNoCGOCannotUse) {
+			t.Fatalf("expect 'clipboard: cannot use when CGO_ENABLED=0', but got: %v", err)
+		}
 	})
 	t.Run("with-cgo", func(t *testing.T) {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
