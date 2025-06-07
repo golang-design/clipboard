@@ -5,7 +5,7 @@ package clipboard
 import "context"
 
 func initialize() error {
-	panic("clipboard: cannot use when CGO_ENABLED=0")
+	return errNoCgo
 }
 
 func read(t Format) (buf []byte, err error) {
