@@ -78,6 +78,12 @@ func readc(t string) ([]byte, error) {
 
 	var data *C.char
 	n := C.clipboard_read(ct, &data)
+	switch C.long(n) {
+	case -1:
+		return nil, errUnavailable
+	case -2:
+		return nil, errUnsupported
+	}
 	if data == nil {
 		return nil, errUnavailable
 	}
