@@ -404,6 +404,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	go func() {
 		// not sure if we are too slow or the user too fast :)
 		ti := time.NewTicker(time.Second)
+		defer ti.Stop()
 		cnt, _, _ := getClipboardSequenceNumber.Call()
 		ready <- struct{}{}
 		for {

@@ -100,6 +100,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	ti := time.NewTicker(time.Second)
 	lastCount := C.long(C.clipboard_change_count())
 	go func() {
+		defer ti.Stop()
 		for {
 			select {
 			case <-ctx.Done():
