@@ -10,4 +10,5 @@ package clipboard
 var (
 	Debug          = debug
 	ErrUnavailable = errUnavailable
+	ErrCgoDisabled = errNoCgo
 )
