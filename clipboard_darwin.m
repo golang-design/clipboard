@@ -25,15 +25,28 @@ unsigned int clipboard_read_string(void **out) {
 }
 
 unsigned int clipboard_read_image(void **out) {
-	NSPasteboard * pasteboard = [NSPasteboard generalPasteboard];
-	NSData *data = [pasteboard dataForType:NSPasteboardTypePNG];
-	if (data == nil) {
-		return 0;
-	}
-	NSUInteger siz = [data length];
-	*out = malloc(siz);
-	[data getBytes: *out length: siz];
-	return siz;
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    NSData *tiffData = [pasteboard dataForType:NSPasteboardTypeTIFF];
+    if (tiffData == nil) {
+        return 0;
+    }
+    NSImage *image = [[NSImage alloc] initWithData:tiffData];
+    if (!image) {
+        return 0;
+    }
+
+    CGImageRef cgRef = [image CGImageForProposedRect:NULL context:nil hints:nil];
+    NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc] initWithCGImage:cgRef];
+    NSData *pngData = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+
+    if (!pngData) {
+        return 0;
+    }
+
+    NSUInteger siz = [pngData length];
+    *out = malloc(siz);
+    [pngData getBytes:*out length:siz];
+    return siz;
 }
 
 int clipboard_write_string(const void *bytes, NSInteger n) {
