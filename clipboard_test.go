@@ -334,3 +334,33 @@ func TestClipboardNoCgo(t *testing.T) {
 		clipboard.Watch(context.TODO(), clipboard.FmtText)
 	})
 }
+
+func TestReadCopyFilePath(t *testing.T) {
+	//err := clipboard.Init()
+	//if err != nil {
+	//	t.Fatal(err)
+	//}
+	//
+	//go func() {
+	//	chText := clipboard.Watch(context.Background(), clipboard.FmtText)
+	//	for data := range chText {
+	//		fmt.Println("Text:", string(data))
+	//	}
+	//}()
+	//
+	//go func() {
+	//	chText := clipboard.Watch(context.Background(), clipboard.FmtImage)
+	//	for data := range chText {
+	//		fmt.Println("Image:", len(data))
+	//	}
+	//}()
+	//
+	//go func() {
+	//	chText := clipboard.Watch(context.Background(), clipboard.FmtHDrop)
+	//	for data := range chText {
+	//		fmt.Println("File or Dir Path:", string(data))
+	//	}
+	//}()
+	//
+	//select {}
+}

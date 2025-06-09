@@ -123,33 +123,61 @@ func readImage() ([]byte, error) {
 	info := (*bitmapV5Header)(unsafe.Pointer(p))
 
 	// maybe deal with other formats?
-	if info.BitCount != 32 {
-		return nil, errUnsupported
-	}
-
-	var data []byte
-	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
-	sh.Data = uintptr(p)
-	sh.Cap = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
-	sh.Len = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
-	img := image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
-	offset := int(info.Size)
-	stride := int(info.Width)
-	for y := 0; y < int(info.Height); y++ {
-		for x := 0; x < int(info.Width); x++ {
-			idx := offset + 4*(y*stride+x)
-			xhat := (x + int(info.Width)) % int(info.Width)
-			yhat := int(info.Height) - 1 - y
-			r := data[idx+2]
-			g := data[idx+1]
-			b := data[idx+0]
-			a := data[idx+3]
-			img.SetRGBA(xhat, yhat, color.RGBA{r, g, b, a})
+	var img *image.RGBA
+	switch info.BitCount {
+	case 32:
+		// existing 32-bit handling code
+		var data []byte
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+		sh.Data = uintptr(p)
+		sh.Cap = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
+		sh.Len = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
+		img = image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
+		offset := int(info.Size)
+		stride := int(info.Width)
+		for y := 0; y < int(info.Height); y++ {
+			for x := 0; x < int(info.Width); x++ {
+				idx := offset + 4*(y*stride+x)
+				xhat := (x + int(info.Width)) % int(info.Width)
+				yhat := int(info.Height) - 1 - y
+				r := data[idx+2]
+				g := data[idx+1]
+				b := data[idx+0]
+				a := data[idx+3]
+				img.SetRGBA(xhat, yhat, color.RGBA{r, g, b, a})
+			}
 		}
+	case 24:
+		// updated 24-bit handling code
+		var data []byte
+		sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+		sh.Data = uintptr(p)
+		stride := (int(info.Width)*3 + 3) &^ 3 // ensure stride is a multiple of 4
+		dataSize := int(info.Size) + stride*int(info.Height)
+		sh.Cap = dataSize
+		sh.Len = dataSize
+		img = image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
+		offset := int(info.Size)
+		for y := 0; y < int(info.Height); y++ {
+			for x := 0; x < int(info.Width); x++ {
+				idx := offset + y*stride + x*3
+				if idx+2 < len(data) {
+					r := data[idx+2]
+					g := data[idx+1]
+					b := data[idx+0]
+					img.SetRGBA(x, int(info.Height)-1-y, color.RGBA{r, g, b, 255})
+				}
+			}
+		}
+	default:
+		return nil, errUnsupported
 	}
 	// always use PNG encoding.
 	var buf bytes.Buffer
-	png.Encode(&buf, img)
+	err = png.Encode(&buf, img)
+	if err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
 
@@ -295,6 +323,34 @@ func writeImage(buf []byte) error {
 	return nil
 }
 
+// readFilePath reads the clipboard and returns the file path if a file or folder is copied.
+// The caller is responsible for opening/closing the clipboard before calling this function.
+func readFilePath() ([]byte, error) {
+	hMem, _, err := getClipboardData.Call(uintptr(cFmtHDrop))
+	if hMem == 0 {
+		return nil, err
+	}
+
+	pMem, _, err := gLock.Call(hMem)
+	if pMem == 0 {
+		return nil, err
+	}
+	defer gLock.Call(hMem)
+
+	// Get the number of files
+	nFiles, _, _ := dragQueryFile.Call(pMem, 0xFFFFFFFF, 0, 0)
+	if nFiles == 0 {
+		return nil, syscall.EINVAL
+	}
+
+	// We're only interested in the first file
+	bufLen, _, _ := dragQueryFile.Call(pMem, 0, 0, 0)
+	buf := make([]uint16, bufLen+1)
+	dragQueryFile.Call(pMem, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+
+	return []byte(syscall.UTF16ToString(buf)), nil
+}
+
 func read(t Format) (buf []byte, err error) {
 	// On Windows, OpenClipboard and CloseClipboard must be executed on
 	// the same thread. Thus, lock the OS thread for further execution.
@@ -304,10 +360,16 @@ func read(t Format) (buf []byte, err error) {
 	var format uintptr
 	switch t {
 	case FmtImage:
+
 		format = cFmtDIBV5
 	case FmtText:
-		fallthrough
+
+		format = cFmtUnicodeText
+	case FmtHDrop:
+
+		format = cFmtHDrop
 	default:
+
 		format = cFmtUnicodeText
 	}
 
@@ -329,10 +391,16 @@ func read(t Format) (buf []byte, err error) {
 
 	switch format {
 	case cFmtDIBV5:
+
 		return readImage()
 	case cFmtUnicodeText:
-		fallthrough
+
+		return readText()
+	case cFmtHDrop:
+
+		return readFilePath()
 	default:
+
 		return readText()
 	}
 }
@@ -431,6 +499,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 const (
 	cFmtBitmap      = 2 // Win+PrintScreen
 	cFmtUnicodeText = 13
+	cFmtHDrop       = 15 // CF_HDROP
 	cFmtDIBV5       = 17
 	// Screenshot taken from special shortcut is in different format (why??), see:
 	// https://jpsoft.com/forums/threads/detecting-clipboard-format.5225/
@@ -548,4 +617,7 @@ var (
 	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalfree
 	gFree   = kernel32.NewProc("GlobalFree")
 	memMove = kernel32.NewProc("RtlMoveMemory")
+
+	shell32       = syscall.NewLazyDLL("shell32.dll")
+	dragQueryFile = shell32.NewProc("DragQueryFileW")
 )
