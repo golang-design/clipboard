@@ -8,82 +8,93 @@
 
 package clipboard
 
-/*
-#cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework Foundation -framework Cocoa
-#import <Foundation/Foundation.h>
-#import <Cocoa/Cocoa.h>
-
-unsigned int clipboard_read_string(void **out);
-unsigned int clipboard_read_image(void **out);
-int clipboard_write_string(const void *bytes, NSInteger n);
-int clipboard_write_image(const void *bytes, NSInteger n);
-NSInteger clipboard_change_count();
-*/
-import "C"
 import (
 	"context"
 	"time"
 	"unsafe"
+
+	"github.com/ebitengine/purego"
+	"github.com/ebitengine/purego/objc"
 )
+
+var (
+	appkit = must(purego.Dlopen("/System/Library/Frameworks/AppKit.framework/AppKit", purego.RTLD_GLOBAL|purego.RTLD_NOW))
+
+	_NSPasteboardTypeString = must2(purego.Dlsym(appkit, "NSPasteboardTypeString"))
+	_NSPasteboardTypePNG    = must2(purego.Dlsym(appkit, "NSPasteboardTypePNG"))
+
+	class_NSPasteboard = objc.GetClass("NSPasteboard")
+	class_NSData       = objc.GetClass("NSData")
+
+	sel_generalPasteboard   = objc.RegisterName("generalPasteboard")
+	sel_length              = objc.RegisterName("length")
+	sel_getBytesLength      = objc.RegisterName("getBytes:length:")
+	sel_dataForType         = objc.RegisterName("dataForType:")
+	sel_clearContents       = objc.RegisterName("clearContents")
+	sel_setDataForType      = objc.RegisterName("setData:forType:")
+	sel_dataWithBytesLength = objc.RegisterName("dataWithBytes:length:")
+	sel_changeCount         = objc.RegisterName("changeCount")
+)
+
+func must(sym uintptr, err error) uintptr {
+	if err != nil {
+		panic(err)
+	}
+	return sym
+}
+
+func must2(sym uintptr, err error) uintptr {
+	if err != nil {
+		panic(err)
+	}
+	// dlsym returns a pointer to the object so dereference like this to avoid possible misuse of 'unsafe.Pointer' warning
+	return **(**uintptr)(unsafe.Pointer(&sym))
+}
 
 func initialize() error { return nil }
 
 func read(t Format) (buf []byte, err error) {
-	var (
-		data unsafe.Pointer
-		n    C.uint
-	)
 	switch t {
 	case FmtText:
-		n = C.clipboard_read_string(&data)
+		return clipboard_read_string(), nil
 	case FmtImage:
-		n = C.clipboard_read_image(&data)
+		return clipboard_read_image(), nil
 	}
-	if data == nil {
-		return nil, errUnavailable
-	}
-	defer C.free(unsafe.Pointer(data))
-	if n == 0 {
-		return nil, nil
-	}
-	return C.GoBytes(data, C.int(n)), nil
+	return nil, errUnavailable
 }
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	var ok C.int
+	var ok bool
 	switch t {
 	case FmtText:
 		if len(buf) == 0 {
-			ok = C.clipboard_write_string(unsafe.Pointer(nil), 0)
+			ok = clipboard_write_string(nil)
 		} else {
-			ok = C.clipboard_write_string(unsafe.Pointer(&buf[0]),
-				C.NSInteger(len(buf)))
+			ok = clipboard_write_string(buf)
 		}
 	case FmtImage:
 		if len(buf) == 0 {
-			ok = C.clipboard_write_image(unsafe.Pointer(nil), 0)
+			ok = clipboard_write_image(nil)
 		} else {
-			ok = C.clipboard_write_image(unsafe.Pointer(&buf[0]),
-				C.NSInteger(len(buf)))
+			ok = clipboard_write_image(buf)
 		}
 	default:
 		return nil, errUnsupported
 	}
-	if ok != 0 {
+	if !ok {
 		return nil, errUnavailable
 	}
 
 	// use unbuffered data to prevent goroutine leak
 	changed := make(chan struct{}, 1)
-	cnt := C.long(C.clipboard_change_count())
+	cnt := clipboard_change_count()
 	go func() {
 		for {
 			// not sure if we are too slow or the user too fast :)
 			time.Sleep(time.Second)
-			cur := C.long(C.clipboard_change_count())
+			cur := clipboard_change_count()
 			if cnt != cur {
 				changed <- struct{}{}
 				close(changed)
@@ -98,7 +109,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	// not sure if we are too slow or the user too fast :)
 	ti := time.NewTicker(time.Second)
-	lastCount := C.long(C.clipboard_change_count())
+	lastCount := clipboard_change_count()
 	go func() {
 		for {
 			select {
@@ -106,7 +117,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				this := C.long(C.clipboard_change_count())
+				this := clipboard_change_count()
 				if lastCount != this {
 					b := Read(t)
 					if b == nil {
@@ -119,4 +130,49 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 		}
 	}()
 	return recv
+}
+
+func clipboard_read_string() []byte {
+	var pasteboard = objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	var data = pasteboard.Send(sel_dataForType, _NSPasteboardTypeString)
+	if data == 0 {
+		return nil
+	}
+	var size = uint(data.Send(sel_length))
+	if size == 0 {
+		return nil
+	}
+	out := make([]byte, size)
+	data.Send(sel_getBytesLength, unsafe.SliceData(out), size)
+	return out
+}
+
+func clipboard_read_image() []byte {
+	var pasteboard = objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	data := pasteboard.Send(sel_dataForType, _NSPasteboardTypePNG)
+	if data == 0 {
+		return nil
+	}
+	size := data.Send(sel_length)
+	out := make([]byte, size)
+	data.Send(sel_getBytesLength, unsafe.SliceData(out), size)
+	return out
+}
+
+func clipboard_write_image(bytes []byte) bool {
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(bytes), len(bytes))
+	pasteboard.Send(sel_clearContents)
+	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypePNG) != 0
+}
+
+func clipboard_write_string(bytes []byte) bool {
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(bytes), len(bytes))
+	pasteboard.Send(sel_clearContents)
+	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypeString) != 0
+}
+
+func clipboard_change_count() int {
+	return int(objc.ID(class_NSPasteboard).Send(sel_generalPasteboard).Send(sel_changeCount))
 }
