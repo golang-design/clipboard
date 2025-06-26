@@ -127,7 +127,7 @@ accessing system clipboards, but here are a few details you might need to know.
 
 ### Dependency
 
-- macOS: require Cgo, no dependency
+- macOS: no Cgo, no build dependency
  - Linux: require X11 dev package. For instance, install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
    Wayland sessions are currently unsupported; running under Wayland
    typically requires an XWayland bridge and `DISPLAY` to be set.
