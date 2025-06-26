@@ -141,6 +141,9 @@ func clipboard_read_string() []byte {
 	var size = uint(data.Send(sel_length))
 	out := make([]byte, size)
 	data.Send(sel_getBytesLength, unsafe.SliceData(out), size)
+	if size == 0 {
+		return nil
+	}
 	return out
 }
 
