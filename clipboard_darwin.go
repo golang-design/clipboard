@@ -14,15 +14,14 @@ package clipboard
 #import <Foundation/Foundation.h>
 #import <Cocoa/Cocoa.h>
 
-unsigned int clipboard_read_string(void **out);
-unsigned int clipboard_read_image(void **out);
-int clipboard_write_string(const void *bytes, NSInteger n);
-int clipboard_write_image(const void *bytes, NSInteger n);
+unsigned int clipboard_read(void **out, void* t);
+int clipboard_write(const void *bytes, NSInteger n, void* t);
 NSInteger clipboard_change_count();
 */
 import "C"
 import (
 	"context"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -30,16 +29,37 @@ import (
 func initialize() error { return nil }
 
 func read(t Format) (buf []byte, err error) {
-	var (
-		data unsafe.Pointer
-		n    C.uint
-	)
-	switch t {
-	case FmtText:
-		n = C.clipboard_read_string(&data)
-	case FmtImage:
-		n = C.clipboard_read_image(&data)
+
+	var format unsafe.Pointer
+	switch tt := t.(type) {
+	case internalFormat:
+		switch tt {
+		case FmtText:
+			format = unsafe.Pointer(C.NSPasteboardTypeString)
+		case FmtImage:
+			format = unsafe.Pointer(C.NSPasteboardTypePNG)
+		}
+	default:
+		found := false
+		registeredFormats.Range(func(key, value interface{}) bool {
+			if t == key {
+				found = true
+				return false
+			}
+			return true
+		})
+		if !found {
+			return nil, errUnsupported
+		}
+		actualFormat, ok := t.(unsafe.Pointer)
+		if !ok {
+			return nil, errUnsupported
+		}
+		format = actualFormat
 	}
+
+	var data unsafe.Pointer
+	n := C.clipboard_read(&data, unsafe.Pointer(&format))
 	if data == nil {
 		return nil, errUnavailable
 	}
@@ -53,24 +73,40 @@ func read(t Format) (buf []byte, err error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	var ok C.int
-	switch t {
-	case FmtText:
-		if len(buf) == 0 {
-			ok = C.clipboard_write_string(unsafe.Pointer(nil), 0)
-		} else {
-			ok = C.clipboard_write_string(unsafe.Pointer(&buf[0]),
-				C.NSInteger(len(buf)))
-		}
-	case FmtImage:
-		if len(buf) == 0 {
-			ok = C.clipboard_write_image(unsafe.Pointer(nil), 0)
-		} else {
-			ok = C.clipboard_write_image(unsafe.Pointer(&buf[0]),
-				C.NSInteger(len(buf)))
+	var format unsafe.Pointer
+	switch tt := t.(type) {
+	case internalFormat:
+		switch tt {
+		case FmtText:
+			format = unsafe.Pointer(C.NSPasteboardTypeString)
+		case FmtImage:
+			format = unsafe.Pointer(C.NSPasteboardTypePNG)
+		default:
+			return nil, errUnsupported
 		}
 	default:
-		return nil, errUnsupported
+		found := false
+		registeredFormats.Range(func(key, value interface{}) bool {
+			if t == key {
+				found = true
+				return false
+			}
+			return true
+		})
+		if !found {
+			return nil, errUnsupported
+		}
+		actualFormat, ok := t.(unsafe.Pointer)
+		if !ok {
+			return nil, errUnsupported
+		}
+		format = actualFormat
+	}
+	var ok C.int
+	if len(buf) == 0 {
+		ok = C.clipboard_write(unsafe.Pointer(nil), 0, unsafe.Pointer(&format))
+	} else {
+		ok = C.clipboard_write(unsafe.Pointer(&buf[0]), C.NSInteger(len(buf)), unsafe.Pointer(&format))
 	}
 	if ok != 0 {
 		return nil, errUnavailable
@@ -119,4 +155,12 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 		}
 	}()
 	return recv
+}
+
+var registeredFormats sync.Map // map[any]any
+
+func register(h Handler) error {
+	t := h.Format()
+	registeredFormats.Store(t, struct{}{})
+	return nil
 }

@@ -72,14 +72,16 @@ var (
 )
 
 // Format represents the format of clipboard data.
-type Format int
+type Format interface{}
+
+type internalFormat int
 
 // All sorts of supported clipboard data
-const (
+var (
 	// FmtText indicates plain text clipboard format
-	FmtText Format = iota
+	FmtText Format = internalFormat(0)
 	// FmtImage indicates image/png clipboard format
-	FmtImage
+	FmtImage Format = internalFormat(1)
 )
 
 var (
@@ -152,4 +154,15 @@ func Write(t Format, buf []byte) <-chan struct{} {
 // The returned channel will be closed if the given context is canceled.
 func Watch(ctx context.Context, t Format) <-chan []byte {
 	return watch(ctx, t)
+}
+
+// Handler is a clipboard content handler.
+type Handler interface {
+	Format() interface{}
+	// TODO: add reader and writer using generics.
+}
+
+// Register allows caller to provide customized clipboard handler.
+func Register(h Handler) error {
+	return register(h)
 }
