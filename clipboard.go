@@ -80,6 +80,8 @@ const (
 	FmtText Format = iota
 	// FmtImage indicates image/png clipboard format
 	FmtImage
+	// FmtHDrop indicates system object clipboard format,can be a file or a directory
+	FmtHDrop
 )
 
 var (
