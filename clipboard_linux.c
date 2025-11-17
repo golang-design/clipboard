@@ -39,10 +39,15 @@ int initX11() {
 		return 1;
 	}
 	libX11 = dlopen("libX11.so", RTLD_LAZY);
-	if (!libX11) {
-		return 0;
-	}
-	P_XOpenDisplay = (Display* (*)(int)) dlsym(libX11, "XOpenDisplay");
+    if (!libX11)
+    {
+        libX11 = dlopen("libX11.so.6", RTLD_LAZY);
+        if (!libX11)
+        {
+            return 0;
+        }
+    }
+    P_XOpenDisplay = (Display* (*)(int)) dlsym(libX11, "XOpenDisplay");
 	P_XCloseDisplay = (void (*)(Display*)) dlsym(libX11, "XCloseDisplay");
 	P_XDefaultRootWindow = (Window (*)(Display*)) dlsym(libX11, "XDefaultRootWindow");
 	P_XCreateSimpleWindow = (Window (*)(Display*, Window, int, int, int, int, int, int, int)) dlsym(libX11, "XCreateSimpleWindow");
@@ -84,6 +89,7 @@ int clipboard_test() {
 // if the write is availiable for reading.
 int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
 	if (!initX11()) {
+        syncStatus(handle, -1);
 		return -1;
 	}
 
