@@ -11,6 +11,7 @@ import "golang.design/x/clipboard"
 - Cross platform supports: **macOS, Linux (X11 and Wayland), Windows, BSD (X11), iOS, and Android**
 - Copy/paste UTF-8 text
 - Copy/paste PNG encoded images (Desktop-only)
+- Register and copy/paste custom MIME-typed formats (Desktop-only, raw passthrough)
 - Command `gclip` as a demo application
 - Mobile app `gclip-gui` as a demo application
 
@@ -88,6 +89,34 @@ for data := range ch {
       }
 }
 ```
+
+Beyond the built-in `FmtText` and `FmtImage`, you can register a custom
+format by its MIME type and use the returned token with `Read`, `Write`,
+and `Watch`. Custom formats are **raw passthrough**: the exact bytes are
+moved to and from the clipboard under that MIME type with no encoding or
+conversion (unlike `FmtImage`, which transcodes PNG). `Register` is
+idempotent and safe to call before `Init`:
+
+```go
+html := clipboard.Register("text/html")
+clipboard.Write(html, []byte("<b>hi</b>"))
+b := clipboard.Read(html)
+
+// Or decode into a typed value with ReadAs:
+doc, err := clipboard.ReadAs(html, func(b []byte) (*Node, error) {
+      return parseHTML(b)
+})
+```
+
+Custom-format support is per platform:
+
+- **macOS, Windows, Linux/X11, BSD/X11:** full read/write/watch round-trip.
+- **Linux/Wayland (data-control):** read/write interoperate with other apps;
+  a process does not observe its *own* just-set custom selection (a
+  data-control limitation).
+- **iOS, Android, and CGO-disabled builds:** `Register` works, but `Read`
+  returns `nil` and `Write` is a no-op for custom formats — they degrade
+  gracefully like the rest of the API.
 
 ## Demos
 

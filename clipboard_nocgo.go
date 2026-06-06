@@ -8,6 +8,10 @@ func initialize() error {
 	return errNoCgo
 }
 
+// read returns errNoCgo for every format, including custom ones registered via
+// Register: in a CGO-disabled build the clipboard is unavailable, so the public
+// API degrades gracefully (Read returns nil, Write returns nil) rather than
+// panicking.
 func read(t Format) (buf []byte, err error) {
 	return nil, errNoCgo
 }
