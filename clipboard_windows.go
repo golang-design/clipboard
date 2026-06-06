@@ -246,6 +246,76 @@ func writeImage(buf []byte) error {
 	return nil
 }
 
+// registerCustomFormat maps a MIME string to a Windows clipboard format ID via
+// RegisterClipboardFormat. Repeated registrations of the same name return the
+// same ID, and the ID is unique per name across the window station, so this
+// library and any other app naming the format identically interoperate.
+func registerCustomFormat(mime string) (uintptr, error) {
+	name, err := syscall.BytePtrFromString(mime)
+	if err != nil {
+		return 0, err
+	}
+	id, _, err := registerClipboardFormatA.Call(uintptr(unsafe.Pointer(name)))
+	runtime.KeepAlive(name)
+	if id == 0 {
+		return 0, err
+	}
+	return id, nil
+}
+
+// readCustom returns the raw bytes stored under the given clipboard format ID,
+// or nil if the handle is empty. The caller must have opened the clipboard.
+func readCustom(format uintptr) ([]byte, error) {
+	hMem, _, err := getClipboardData.Call(format)
+	if hMem == 0 {
+		return nil, err
+	}
+	p, _, err := gLock.Call(hMem)
+	if p == 0 {
+		return nil, err
+	}
+	defer gUnlock.Call(hMem)
+
+	size, _, _ := gSize.Call(hMem)
+	if size == 0 {
+		return nil, nil
+	}
+	out := make([]byte, int(size))
+	memMove.Call(uintptr(unsafe.Pointer(&out[0])), p, size)
+	return out, nil
+}
+
+// writeCustom stores buf verbatim under the given clipboard format ID with no
+// conversion (raw passthrough). The caller must have opened the clipboard.
+func writeCustom(format uintptr, buf []byte) error {
+	r, _, err := emptyClipboard.Call()
+	if r == 0 {
+		return fmt.Errorf("failed to clear clipboard: %w", err)
+	}
+	if len(buf) == 0 {
+		return nil
+	}
+
+	hMem, _, err := gAlloc.Call(gmemMoveable, uintptr(len(buf)))
+	if hMem == 0 {
+		return fmt.Errorf("failed to alloc global memory: %w", err)
+	}
+	p, _, err := gLock.Call(hMem)
+	if p == 0 {
+		return fmt.Errorf("failed to lock global memory: %w", err)
+	}
+	defer gUnlock.Call(hMem)
+
+	memMove.Call(p, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+
+	v, _, err := setClipboardData.Call(format, hMem)
+	if v == 0 {
+		gFree.Call(hMem)
+		return fmt.Errorf("failed to set custom data to clipboard: %w", err)
+	}
+	return nil
+}
+
 func read(t Format) (buf []byte, err error) {
 	// On Windows, OpenClipboard and CloseClipboard must be executed on
 	// the same thread. Thus, lock the OS thread for further execution.
@@ -257,9 +327,16 @@ func read(t Format) (buf []byte, err error) {
 	case FmtImage:
 		format = cFmtDIBV5
 	case FmtText:
-		fallthrough
-	default:
 		format = cFmtUnicodeText
+	default:
+		mime, ok := formatMIME(t)
+		if !ok {
+			return nil, errUnsupported
+		}
+		format, err = registerCustomFormat(mime)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// check if clipboard is avaliable for the requested format
@@ -287,9 +364,9 @@ func read(t Format) (buf []byte, err error) {
 	case cFmtDIBV5:
 		return readImage()
 	case cFmtUnicodeText:
-		fallthrough
-	default:
 		return readText()
+	default:
+		return readCustom(format)
 	}
 }
 
@@ -321,10 +398,23 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 				return
 			}
 		case FmtText:
-			fallthrough
-		default:
-			// param = cFmtUnicodeText
 			err := writeText(buf)
+			if err != nil {
+				errch <- err
+				closeClipboard.Call()
+				return
+			}
+		default:
+			mime, ok := formatMIME(t)
+			if !ok {
+				errch <- errUnsupported
+				closeClipboard.Call()
+				return
+			}
+			id, err := registerCustomFormat(mime)
+			if err == nil {
+				err = writeCustom(id, buf)
+			}
 			if err != nil {
 				errch <- err
 				closeClipboard.Call()
@@ -471,4 +561,8 @@ var (
 	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalfree
 	gFree   = kernel32.NewProc("GlobalFree")
 	memMove = kernel32.NewProc("RtlMoveMemory")
+	// Retrieves the current size of the specified global memory object, in
+	// bytes. Used to size reads of raw custom-format data.
+	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalsize
+	gSize = kernel32.NewProc("GlobalSize")
 )
