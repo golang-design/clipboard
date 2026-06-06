@@ -60,10 +60,14 @@ func waylandSocketPath() string {
 	return filepath.Join(dir, disp)
 }
 
-// wlConn is a minimal Wayland protocol connection.
+// wlConn is a minimal Wayland protocol connection. It buffers incoming bytes
+// and any file descriptors received as ancillary data (SCM_RIGHTS), so that an
+// event carrying an fd (e.g. data_source.send) can be paired with it.
 type wlConn struct {
 	c      *net.UnixConn
 	nextID uint32
+	rbuf   []byte
+	fds    []int
 }
 
 // wlConnect dials the Wayland display socket.
@@ -104,25 +108,67 @@ func (w *wlConn) request(objID uint32, opcode uint16, payload []byte) error {
 	return err
 }
 
-// readEvent reads a single event: the sender object id, the opcode, and the
-// (header-stripped) body.
-func (w *wlConn) readEvent() (objID uint32, opcode uint16, body []byte, err error) {
-	var hdr [8]byte
-	if _, err = io.ReadFull(w.c, hdr[:]); err != nil {
-		return 0, 0, nil, err
+// fill reads one batch from the socket, accumulating message bytes and any
+// file descriptors delivered as ancillary data.
+func (w *wlConn) fill() error {
+	var p [4096]byte
+	var oob [256]byte
+	n, oobn, _, _, err := w.c.ReadMsgUnix(p[:], oob[:])
+	if err != nil {
+		return err
 	}
-	objID = binary.LittleEndian.Uint32(hdr[0:])
-	word := binary.LittleEndian.Uint32(hdr[4:])
+	if n > 0 {
+		w.rbuf = append(w.rbuf, p[:n]...)
+	}
+	if oobn > 0 {
+		if scms, err := syscall.ParseSocketControlMessage(oob[:oobn]); err == nil {
+			for i := range scms {
+				if fds, err := syscall.ParseUnixRights(&scms[i]); err == nil {
+					w.fds = append(w.fds, fds...)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// readEvent reads a single event: the sender object id, the opcode, and the
+// (header-stripped) body. File descriptors carried alongside are queued and
+// retrieved with nextFd.
+func (w *wlConn) readEvent() (objID uint32, opcode uint16, body []byte, err error) {
+	for len(w.rbuf) < 8 {
+		if err := w.fill(); err != nil {
+			return 0, 0, nil, err
+		}
+	}
+	objID = binary.LittleEndian.Uint32(w.rbuf[0:])
+	word := binary.LittleEndian.Uint32(w.rbuf[4:])
 	size := int(word >> 16)
 	opcode = uint16(word & 0xffff)
 	if size < 8 {
 		return 0, 0, nil, fmt.Errorf("wayland: invalid message size %d", size)
 	}
-	body = make([]byte, size-8)
-	if _, err = io.ReadFull(w.c, body); err != nil {
-		return 0, 0, nil, err
+	for len(w.rbuf) < size {
+		if err := w.fill(); err != nil {
+			return 0, 0, nil, err
+		}
 	}
+	body = make([]byte, size-8)
+	copy(body, w.rbuf[8:size])
+	rest := make([]byte, len(w.rbuf)-size)
+	copy(rest, w.rbuf[size:])
+	w.rbuf = rest
 	return objID, opcode, body, nil
+}
+
+// nextFd dequeues the next received file descriptor, if any.
+func (w *wlConn) nextFd() (int, bool) {
+	if len(w.fds) == 0 {
+		return -1, false
+	}
+	fd := w.fds[0]
+	w.fds = w.fds[1:]
+	return fd, true
 }
 
 // wlString decodes a length-prefixed, NUL-terminated, 32-bit-padded Wayland
@@ -229,14 +275,22 @@ const (
 	// wl_display
 	dispOpcodeSync        = 0
 	dispOpcodeGetRegistry = 1
-	// manager
-	mgrOpcodeGetDataDevice = 1
+	// manager requests
+	mgrOpcodeCreateDataSource = 0
+	mgrOpcodeGetDataDevice    = 1
+	// device requests
+	devOpcodeSetSelection = 0
 	// device events
 	devEvtDataOffer = 0
 	devEvtSelection = 1
 	// offer
 	offerOpcodeReceive = 0
 	offerEvtOffer      = 0
+	// source requests
+	srcOpcodeOffer = 0
+	// source events
+	srcEvtSend      = 0
+	srcEvtCancelled = 1
 )
 
 // MIME types we map each Format to, in order of preference when reading.
@@ -308,69 +362,12 @@ func wlRead(t Format) ([]byte, error) {
 // provides. It returns (nil, nil) if the clipboard is empty or holds none of
 // the requested types.
 func wlReadSelection(mimes []string) ([]byte, error) {
-	w, err := wlConnect()
+	w, _, deviceID, err := wlConnectDevice()
 	if err != nil {
 		return nil, err
 	}
 	defer w.Close()
 
-	registryID := w.newID()
-	var arg [4]byte
-	binary.LittleEndian.PutUint32(arg[:], registryID)
-	if err := w.request(wlDisplayID, dispOpcodeGetRegistry, arg[:]); err != nil {
-		return nil, err
-	}
-	sync1, err := w.sync()
-	if err != nil {
-		return nil, err
-	}
-
-	globals := make(map[string]wlGlobal)
-	for {
-		obj, op, body, err := w.readEvent()
-		if err != nil {
-			return nil, err
-		}
-		if obj == wlDisplayID && op == 0 {
-			return nil, wlDisplayError(body)
-		}
-		if obj == registryID && op == 0 && len(body) >= 4 {
-			name := binary.LittleEndian.Uint32(body[0:])
-			iface, off, err := wlString(body, 4)
-			if err == nil && off+4 <= len(body) {
-				globals[iface] = wlGlobal{name: name, version: binary.LittleEndian.Uint32(body[off:])}
-			}
-		}
-		if obj == sync1 && op == 0 {
-			break
-		}
-	}
-
-	mgrIface, mgr, ok := dataControlManager(globals)
-	if !ok {
-		return nil, errUnavailable
-	}
-	seat, ok := globals["wl_seat"]
-	if !ok {
-		return nil, errUnavailable
-	}
-	managerID, err := w.bind(registryID, mgr.name, mgrIface, 1)
-	if err != nil {
-		return nil, err
-	}
-	seatID, err := w.bind(registryID, seat.name, "wl_seat", 1)
-	if err != nil {
-		return nil, err
-	}
-
-	// manager.get_data_device(new_id device, seat)
-	deviceID := w.newID()
-	dd := make([]byte, 8)
-	binary.LittleEndian.PutUint32(dd[0:], deviceID)
-	binary.LittleEndian.PutUint32(dd[4:], seatID)
-	if err := w.request(managerID, mgrOpcodeGetDataDevice, dd); err != nil {
-		return nil, err
-	}
 	sync2, err := w.sync()
 	if err != nil {
 		return nil, err
@@ -441,4 +438,196 @@ func pickMIME(want, have []string) string {
 		}
 	}
 	return ""
+}
+
+// wlConnectDevice opens a Wayland connection, discovers the globals, binds the
+// data-control manager and the seat, and creates the data-control device. It
+// returns the open connection (the caller must Close it), the manager id, and
+// the device id. Server events from get_data_device are left unread for the
+// caller to process.
+func wlConnectDevice() (w *wlConn, managerID, deviceID uint32, err error) {
+	w, err = wlConnect()
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	registryID := w.newID()
+	arg := make([]byte, 4)
+	binary.LittleEndian.PutUint32(arg, registryID)
+	if err = w.request(wlDisplayID, dispOpcodeGetRegistry, arg); err != nil {
+		w.Close()
+		return nil, 0, 0, err
+	}
+	sync1, err := w.sync()
+	if err != nil {
+		w.Close()
+		return nil, 0, 0, err
+	}
+
+	globals := make(map[string]wlGlobal)
+	for {
+		obj, op, body, e := w.readEvent()
+		if e != nil {
+			w.Close()
+			return nil, 0, 0, e
+		}
+		if obj == wlDisplayID && op == 0 {
+			w.Close()
+			return nil, 0, 0, wlDisplayError(body)
+		}
+		if obj == registryID && op == 0 && len(body) >= 4 {
+			name := binary.LittleEndian.Uint32(body[0:])
+			iface, off, e := wlString(body, 4)
+			if e == nil && off+4 <= len(body) {
+				globals[iface] = wlGlobal{name: name, version: binary.LittleEndian.Uint32(body[off:])}
+			}
+		}
+		if obj == sync1 && op == 0 {
+			break
+		}
+	}
+
+	mgrIface, mgr, ok := dataControlManager(globals)
+	if !ok {
+		w.Close()
+		return nil, 0, 0, errUnavailable
+	}
+	seat, ok := globals["wl_seat"]
+	if !ok {
+		w.Close()
+		return nil, 0, 0, errUnavailable
+	}
+	if managerID, err = w.bind(registryID, mgr.name, mgrIface, 1); err != nil {
+		w.Close()
+		return nil, 0, 0, err
+	}
+	seatID, err := w.bind(registryID, seat.name, "wl_seat", 1)
+	if err != nil {
+		w.Close()
+		return nil, 0, 0, err
+	}
+
+	// manager.get_data_device(new_id device, seat)
+	deviceID = w.newID()
+	dd := make([]byte, 8)
+	binary.LittleEndian.PutUint32(dd[0:], deviceID)
+	binary.LittleEndian.PutUint32(dd[4:], seatID)
+	if err = w.request(managerID, mgrOpcodeGetDataDevice, dd); err != nil {
+		w.Close()
+		return nil, 0, 0, err
+	}
+	return w, managerID, deviceID, nil
+}
+
+// wlWrite sets the clipboard selection to data for the given format and serves
+// paste requests until ownership is lost. It returns a channel that is closed
+// when the selection is replaced (the source's cancelled event) or the
+// connection ends, matching the package Write contract.
+func wlWrite(t Format, data []byte) (<-chan struct{}, error) {
+	var mimes []string
+	switch t {
+	case FmtText:
+		mimes = textMIMEs
+	case FmtImage:
+		mimes = imageMIMEs
+	default:
+		return nil, errUnsupported
+	}
+
+	w, managerID, deviceID, err := wlConnectDevice()
+	if err != nil {
+		return nil, err
+	}
+
+	// manager.create_data_source(new_id)
+	sourceID := w.newID()
+	arg := make([]byte, 4)
+	binary.LittleEndian.PutUint32(arg, sourceID)
+	if err := w.request(managerID, mgrOpcodeCreateDataSource, arg); err != nil {
+		w.Close()
+		return nil, err
+	}
+	// source.offer(mime) for each advertised type
+	for _, m := range mimes {
+		if err := w.request(sourceID, srcOpcodeOffer, wlEncodeString(m)); err != nil {
+			w.Close()
+			return nil, err
+		}
+	}
+	// device.set_selection(source)
+	binary.LittleEndian.PutUint32(arg, sourceID)
+	if err := w.request(deviceID, devOpcodeSetSelection, arg); err != nil {
+		w.Close()
+		return nil, err
+	}
+
+	// Confirm the requests were processed before returning, so callers can
+	// rely on the selection being set.
+	confirm, err := w.sync()
+	if err != nil {
+		w.Close()
+		return nil, err
+	}
+	for {
+		obj, op, body, err := w.readEvent()
+		if err != nil {
+			w.Close()
+			return nil, err
+		}
+		if obj == wlDisplayID && op == 0 {
+			w.Close()
+			return nil, wlDisplayError(body)
+		}
+		// A send may already arrive before the sync barrier; serve it.
+		if obj == sourceID && op == srcEvtSend {
+			wlServeSend(w, body, data)
+		}
+		if obj == sourceID && op == srcEvtCancelled {
+			w.Close()
+			done := make(chan struct{})
+			close(done)
+			return done, nil
+		}
+		if obj == confirm && op == 0 {
+			break
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer w.Close()
+		for {
+			obj, op, body, err := w.readEvent()
+			if err != nil {
+				return
+			}
+			switch {
+			case obj == wlDisplayID && op == 0:
+				return
+			case obj == sourceID && op == srcEvtSend:
+				wlServeSend(w, body, data)
+			case obj == sourceID && op == srcEvtCancelled:
+				return
+			}
+		}
+	}()
+	return done, nil
+}
+
+// wlServeSend answers a data_source.send event by writing data to the fd the
+// requestor provided (received as ancillary data) and closing it.
+func wlServeSend(w *wlConn, body []byte, data []byte) {
+	_, _, _ = wlString(body, 0) // mime; we serve the same data for any type offered
+	fd, ok := w.nextFd()
+	if !ok {
+		return
+	}
+	f := os.NewFile(uintptr(fd), "wl-clipboard-send")
+	if f == nil {
+		syscall.Close(fd)
+		return
+	}
+	_, _ = f.Write(data)
+	f.Close()
 }
