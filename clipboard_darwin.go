@@ -30,19 +30,21 @@ var (
 
 	class_NSPasteboard      = objc.GetClass("NSPasteboard")
 	class_NSData            = objc.GetClass("NSData")
+	class_NSString          = objc.GetClass("NSString")
 	class_NSAutoreleasePool = objc.GetClass("NSAutoreleasePool")
 
-	sel_alloc               = objc.RegisterName("alloc")
-	sel_init                = objc.RegisterName("init")
-	sel_drain               = objc.RegisterName("drain")
-	sel_generalPasteboard   = objc.RegisterName("generalPasteboard")
-	sel_length              = objc.RegisterName("length")
-	sel_getBytesLength      = objc.RegisterName("getBytes:length:")
-	sel_dataForType         = objc.RegisterName("dataForType:")
-	sel_clearContents       = objc.RegisterName("clearContents")
-	sel_setDataForType      = objc.RegisterName("setData:forType:")
-	sel_dataWithBytesLength = objc.RegisterName("dataWithBytes:length:")
-	sel_changeCount         = objc.RegisterName("changeCount")
+	sel_alloc                = objc.RegisterName("alloc")
+	sel_init                 = objc.RegisterName("init")
+	sel_drain                = objc.RegisterName("drain")
+	sel_generalPasteboard    = objc.RegisterName("generalPasteboard")
+	sel_length               = objc.RegisterName("length")
+	sel_getBytesLength       = objc.RegisterName("getBytes:length:")
+	sel_dataForType          = objc.RegisterName("dataForType:")
+	sel_clearContents        = objc.RegisterName("clearContents")
+	sel_setDataForType       = objc.RegisterName("setData:forType:")
+	sel_dataWithBytesLength  = objc.RegisterName("dataWithBytes:length:")
+	sel_stringWithUTF8String = objc.RegisterName("stringWithUTF8String:")
+	sel_changeCount          = objc.RegisterName("changeCount")
 )
 
 func must(sym uintptr, err error) uintptr {
@@ -89,8 +91,13 @@ func read(t Format) (buf []byte, err error) {
 		return clipboard_read_string(), nil
 	case FmtImage:
 		return clipboard_read_image(), nil
+	default:
+		mime, ok := formatMIME(t)
+		if !ok {
+			return nil, errUnsupported
+		}
+		return clipboard_read_custom(mime), nil
 	}
-	return nil, errUnavailable
 }
 
 // write writes the given data to clipboard and
@@ -111,7 +118,11 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			ok = clipboard_write_image(buf)
 		}
 	default:
-		return nil, errUnsupported
+		mime, found := formatMIME(t)
+		if !found {
+			return nil, errUnsupported
+		}
+		ok = clipboard_write_custom(mime, buf)
 	}
 	if !ok {
 		return nil, errUnavailable
@@ -225,6 +236,35 @@ func clipboard_write_string(buf []byte) bool {
 	runtime.KeepAlive(buf)
 	pasteboard.Send(sel_clearContents)
 	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypeString) != 0
+}
+
+// nsString builds an autoreleased NSString from a Go string, used as a custom
+// pasteboard type. It must be called inside an autorelease pool (read/write
+// custom both install one) so the temporary string is reclaimed.
+func nsString(s string) objc.ID {
+	b := append([]byte(s), 0) // NUL-terminate for stringWithUTF8String:
+	str := objc.ID(class_NSString).Send(sel_stringWithUTF8String, unsafe.SliceData(b))
+	runtime.KeepAlive(b)
+	return str
+}
+
+// clipboard_read_custom returns the raw bytes stored under the given MIME type
+// (used as the pasteboard type verbatim), or nil if no such data is present.
+func clipboard_read_custom(mime string) []byte {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	return nsdataBytes(pasteboard.Send(sel_dataForType, nsString(mime)))
+}
+
+// clipboard_write_custom stores buf verbatim under the given MIME type with no
+// conversion (raw passthrough), replacing the current clipboard contents.
+func clipboard_write_custom(mime string, buf []byte) bool {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
+	runtime.KeepAlive(buf)
+	pasteboard.Send(sel_clearContents)
+	return pasteboard.Send(sel_setDataForType, data, nsString(mime)) != 0
 }
 
 func clipboard_change_count() int {
