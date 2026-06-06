@@ -42,9 +42,12 @@ exec "${runtime}" run --rm -v "${repo_root}":/src -w /src "golang:${GO_VERSION}"
 	export XDG_RUNTIME_DIR=/tmp/xdg
 	mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
 	export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
-	# Run the test suite as a sway client, then quit the compositor. sway sets
-	# WAYLAND_DISPLAY in the environment of processes it execs.
-	printf "exec \"go test -count=1 -covermode=atomic -run Wayland -v . > /tmp/res.txt 2>&1; echo EXIT=\$? >> /tmp/res.txt; swaymsg exit\"\n" > /tmp/sway.conf
+	# Run the whole suite as a sway client, so the public API (Init/Read/Write/
+	# Watch) is exercised through the Wayland dispatch, then quit the compositor.
+	# sway sets WAYLAND_DISPLAY in the environment of processes it execs.
+	# xwayland is disabled: we do not need it and it just logs a missing-binary
+	# error in CI.
+	printf "xwayland disable\nexec \"go test -count=1 -covermode=atomic -v . > /tmp/res.txt 2>&1; echo EXIT=\$? >> /tmp/res.txt; swaymsg exit 2>/dev/null\"\n" > /tmp/sway.conf
 	timeout 180 sway -c /tmp/sway.conf >/tmp/sway.log 2>&1 || true
 	echo "----- go test output -----"
 	cat /tmp/res.txt 2>/dev/null || { echo "no test output; sway log:"; tail -20 /tmp/sway.log; exit 1; }
