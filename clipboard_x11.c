@@ -4,7 +4,13 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build linux && !android
+//go:build ignore
+
+// This is the cgo X11 clipboard implementation used only by the BSD backend,
+// which #includes it textually from clipboard_bsd.c. Linux no longer compiles
+// any cgo (it uses the pure-Go backend in clipboard_x11_linux.go), so this file
+// carries a build constraint that never matches: it is never built as a
+// standalone translation unit, only pulled in by clipboard_bsd.c.
 
 #include <stdlib.h>
 #include <stdio.h>

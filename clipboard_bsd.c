@@ -6,11 +6,9 @@
 
 //go:build (openbsd || freebsd || netbsd) && !android
 
-// The BSD X11 clipboard implementation is identical to the Linux one.
-// Include it directly so the two never drift apart: any fix to the X11
-// logic in clipboard_linux.c applies to the BSDs automatically. The only
-// per-platform differences are the cgo flags, which live in the
-// respective clipboard_linux.go / clipboard_bsd.go files (Linux links
-// -ldl for dlopen, the BSDs ship it in libc and need the X11 include
-// path instead).
-#include "clipboard_linux.c"
+// The BSD X11 clipboard uses the shared cgo X11 implementation in
+// clipboard_x11.c, included textually here. Linux dropped cgo for a pure-Go
+// X11 backend; the BSDs still use this cgo path. The only per-platform
+// differences are the cgo flags in clipboard_bsd.go (the BSDs ship dlopen in
+// libc and need the X11 include path).
+#include "clipboard_x11.c"
