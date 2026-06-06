@@ -50,7 +50,7 @@ func ExampleWatch() {
 	go func(ctx context.Context) {
 		clipboard.Write(clipboard.FmtText, []byte("你好，world"))
 	}(ctx)
-	fmt.Println(string(<-changed))
+	fmt.Println(string((<-changed).Bytes))
 	// Output:
 	// 你好，world
 }

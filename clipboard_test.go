@@ -285,10 +285,13 @@ loop:
 				}
 				break loop
 			}
-			if !bytes.Equal(data, want) {
-				t.Fatalf("received data from watch mismatch, want: %v, got %v", string(want), string(data))
+			if !bytes.Equal(data.Bytes, want) {
+				t.Fatalf("received data from watch mismatch, want: %v, got %v", string(want), string(data.Bytes))
 			}
-			lastRead = data
+			if data.Format != clipboard.FmtText {
+				t.Fatalf("received data from watch has wrong format, want: %v, got %v", clipboard.FmtText, data.Format)
+			}
+			lastRead = data.Bytes
 		}
 	}
 	// After the context is cancelled, watch must close the channel (per the
@@ -304,6 +307,87 @@ loop:
 			// A value was buffered before the close; keep draining.
 		case <-deadline:
 			t.Fatalf("changed channel was not closed after ctx cancellation")
+		}
+	}
+}
+
+// TestClipboardWatchMultiFormat exercises the variadic Watch: a single call
+// observes more than one format at once and each received value is tagged with
+// the format it was detected in. Watching with no format argument observes all
+// supported formats. This test cannot compile against the old single-format
+// Watch(ctx, Format) <-chan []byte signature.
+func TestClipboardWatchMultiFormat(t *testing.T) {
+	if degradesWithoutCgo() {
+		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
+			t.Skip("CGO_ENABLED is set to 0")
+		}
+	}
+
+	img, err := os.ReadFile("tests/testdata/clipboard.png")
+	if err != nil {
+		t.Fatalf("failed to read test image: %v", err)
+	}
+	// Use a payload distinct from other tests and clear the clipboard first:
+	// the Linux watcher emits only when the bytes differ from what it read at
+	// startup, so a leftover identical string would suppress the text event.
+	wantText := []byte("golang.design/x/clipboard#89-watch-multiformat")
+	clipboard.Write(clipboard.FmtText, []byte(""))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+	defer cancel()
+
+	// Watch all supported formats through a single call.
+	changed := clipboard.Watch(ctx)
+
+	// The clipboard holds only the most recently written format and the
+	// platform watchers poll once per second, so alternate the two formats
+	// on a tick slower than that poll interval. Writing both back-to-back
+	// would let the second clobber the first before any watcher observes it.
+	go func(ctx context.Context) {
+		tk := time.NewTicker(time.Millisecond * 1300)
+		defer tk.Stop()
+		writeImage := false
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tk.C:
+				if writeImage {
+					clipboard.Write(clipboard.FmtImage, img)
+				} else {
+					clipboard.Write(clipboard.FmtText, wantText)
+				}
+				writeImage = !writeImage
+			}
+		}
+	}(ctx)
+
+	var sawText, sawImage bool
+	for !(sawText && sawImage) {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("did not observe both formats from a single Watch: text=%v image=%v", sawText, sawImage)
+		case data, ok := <-changed:
+			if !ok {
+				t.Fatalf("watch channel closed before observing both formats: text=%v image=%v", sawText, sawImage)
+			}
+			switch data.Format {
+			case clipboard.FmtText:
+				if !bytes.Equal(data.Bytes, wantText) {
+					t.Fatalf("text event payload mismatch, want %q got %q", wantText, data.Bytes)
+				}
+				sawText = true
+			case clipboard.FmtImage:
+				// Image bytes round-trip through platform conversions
+				// (DIB/TIFF), so assert the payload is a decodable PNG
+				// rather than byte-identical to the source.
+				if _, err := png.Decode(bytes.NewReader(data.Bytes)); err != nil {
+					t.Fatalf("image event payload is not a valid PNG: %v", err)
+				}
+				sawImage = true
+			default:
+				t.Fatalf("watch reported an unexpected format: %v", data.Format)
+			}
 		}
 	}
 }

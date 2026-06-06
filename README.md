@@ -69,7 +69,23 @@ clipboard data is changed, use the watcher API:
 ch := clipboard.Watch(context.TODO(), clipboard.FmtText)
 for data := range ch {
       // print out clipboard data whenever it is changed
-      println(string(data))
+      println(string(data.Bytes))
+}
+```
+
+`Watch` is variadic and tags each value with the format it was detected
+in, so a single call can observe more than one format at once (pass no
+format to watch all supported ones):
+
+```go
+ch := clipboard.Watch(context.TODO())
+for data := range ch {
+      switch data.Format {
+      case clipboard.FmtText:
+            println("text:", string(data.Bytes))
+      case clipboard.FmtImage:
+            println("image bytes:", len(data.Bytes))
+      }
 }
 ```
 
