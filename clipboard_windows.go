@@ -318,8 +318,13 @@ func read(t Format) (buf []byte, err error) {
 	}
 
 	// try again until open clipboard successed
+	//
+	// Pass a NULL (0) window handle explicitly: OpenClipboard expects an
+	// HWND argument, and omitting it leaves a garbage value on the stack
+	// under the 386 stdcall ABI, which makes the call spin here forever
+	// (see #45). The write path below already passes 0.
 	for {
-		r, _, _ = openClipboard.Call()
+		r, _, _ = openClipboard.Call(0)
 		if r == 0 {
 			continue
 		}
