@@ -301,36 +301,33 @@ func TestClipboardNoCgo(t *testing.T) {
 		t.Skip("Windows should always be tested")
 	}
 
+	// When CGO is disabled, the clipboard cannot function but the public
+	// API must degrade gracefully instead of panicking: Read/Write return
+	// nil and Watch returns a closed channel. See issue #93.
 	t.Run("Read", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				return
-			}
-			t.Fatalf("expect to fail when CGO_ENABLED=0")
-		}()
-
-		clipboard.Read(clipboard.FmtText)
+		if got := clipboard.Read(clipboard.FmtText); got != nil {
+			t.Fatalf("expect nil when CGO_ENABLED=0, got: %v", got)
+		}
 	})
 
 	t.Run("Write", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				return
-			}
-			t.Fatalf("expect to fail when CGO_ENABLED=0")
-		}()
-
-		clipboard.Write(clipboard.FmtText, []byte("dummy"))
+		if got := clipboard.Write(clipboard.FmtText, []byte("dummy")); got != nil {
+			t.Fatalf("expect nil when CGO_ENABLED=0, got non-nil channel")
+		}
 	})
 
 	t.Run("Watch", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				return
+		changed := clipboard.Watch(context.TODO(), clipboard.FmtText)
+		if changed == nil {
+			t.Fatalf("expect a non-nil channel when CGO_ENABLED=0")
+		}
+		select {
+		case _, ok := <-changed:
+			if ok {
+				t.Fatalf("expect a closed channel when CGO_ENABLED=0")
 			}
-			t.Fatalf("expect to fail when CGO_ENABLED=0")
-		}()
-
-		clipboard.Watch(context.TODO(), clipboard.FmtText)
+		case <-time.After(time.Second):
+			t.Fatalf("expect a closed channel when CGO_ENABLED=0, but it blocked")
+		}
 	})
 }
