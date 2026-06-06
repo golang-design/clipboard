@@ -28,7 +28,21 @@ unsigned int clipboard_read_image(void **out) {
 	NSPasteboard * pasteboard = [NSPasteboard generalPasteboard];
 	NSData *data = [pasteboard dataForType:NSPasteboardTypePNG];
 	if (data == nil) {
-		return 0;
+		// macOS stores copied images as TIFF by default (e.g. screenshots
+		// and "Copy Image" in many apps). Fall back to TIFF and transcode
+		// to PNG so callers always receive PNG data.
+		NSData *tiff = [pasteboard dataForType:NSPasteboardTypeTIFF];
+		if (tiff == nil) {
+			return 0;
+		}
+		NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:tiff];
+		if (rep == nil) {
+			return 0;
+		}
+		data = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+		if (data == nil) {
+			return 0;
+		}
 	}
 	NSUInteger siz = [data length];
 	*out = malloc(siz);
