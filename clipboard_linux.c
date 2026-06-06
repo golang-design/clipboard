@@ -64,24 +64,41 @@ int initX11() {
 	return 1;
 }
 
+// displayUnavailable remembers that opening the X11 display has already
+// failed, so later calls can fail fast instead of retrying the open on
+// every Write/Read/Watch. Without this, once Init fails (e.g. no DISPLAY
+// or no X server) each subsequent call repeats the open attempts and
+// blocks before returning the same error (see #85).
+static int displayUnavailable = 0;
+
+// openDisplay opens the X11 display, retrying a few times to tolerate a
+// transient race during startup. A persistent failure is cached so that
+// subsequent calls return immediately rather than retrying.
+Display* openDisplay() {
+	if (displayUnavailable) {
+		return NULL;
+	}
+	for (int i = 0; i < 42; i++) {
+		Display* d = (*P_XOpenDisplay)(0);
+		if (d != NULL) {
+			return d;
+		}
+	}
+	displayUnavailable = 1;
+	return NULL;
+}
+
 int clipboard_test() {
 	if (!initX11()) {
 		return -1;
 	}
 
-    Display* d = NULL;
-    for (int i = 0; i < 42; i++) {
-        d = (*P_XOpenDisplay)(0);
-        if (d == NULL) {
-            continue;
-        }
-        break;
-    }
-    if (d == NULL) {
-        return -1;
-    }
-    (*P_XCloseDisplay)(d);
-    return 0;
+	Display* d = openDisplay();
+	if (d == NULL) {
+		return -1;
+	}
+	(*P_XCloseDisplay)(d);
+	return 0;
 }
 
 // clipboard_write writes the given buf of size n as type typ.
@@ -93,14 +110,7 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
 		return -1;
 	}
 
-    Display* d = NULL;
-    for (int i = 0; i < 42; i++) {
-        d = (*P_XOpenDisplay)(0);
-        if (d == NULL) {
-            continue;
-        }
-        break;
-    }
+    Display* d = openDisplay();
     if (d == NULL) {
         syncStatus(handle, -1);
         return -1;
@@ -231,14 +241,7 @@ unsigned long clipboard_read(char* typ, char **buf) {
 		return -1;
 	}
 
-    Display* d = NULL;
-    for (int i = 0; i < 42; i++) {
-        d = (*P_XOpenDisplay)(0);
-        if (d == NULL) {
-            continue;
-        }
-        break;
-    }
+    Display* d = openDisplay();
     if (d == NULL) {
         return -1;
     }
