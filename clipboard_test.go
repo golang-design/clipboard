@@ -327,7 +327,11 @@ func TestClipboardWatchMultiFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read test image: %v", err)
 	}
-	wantText := []byte("golang.design/x/clipboard")
+	// Use a payload distinct from other tests and clear the clipboard first:
+	// the Linux watcher emits only when the bytes differ from what it read at
+	// startup, so a leftover identical string would suppress the text event.
+	wantText := []byte("golang.design/x/clipboard#89-watch-multiformat")
+	clipboard.Write(clipboard.FmtText, []byte(""))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 	defer cancel()
