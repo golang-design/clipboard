@@ -72,3 +72,41 @@ func TestWaylandReadText(t *testing.T) {
 		t.Fatalf("wlRead = %q, want %q", got, want)
 	}
 }
+
+// TestWaylandWriteText verifies the data-control write path: the backend
+// becomes the selection owner and serves the data, which wl-paste reads back.
+// It also checks the returned channel closes when another client takes the
+// selection. Runs under headless sway; skips off-Wayland or without wl-clipboard.
+func TestWaylandWriteText(t *testing.T) {
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		t.Skip("not a Wayland session (WAYLAND_DISPLAY unset)")
+	}
+	if _, err := exec.LookPath("wl-paste"); err != nil {
+		t.Skip("wl-paste not found")
+	}
+
+	const want = "hello-wayland-write"
+	done, err := wlWrite(FmtText, []byte(want))
+	if err != nil {
+		t.Fatalf("wlWrite: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	out, err := exec.Command("wl-paste", "--no-newline").Output()
+	if err != nil {
+		t.Fatalf("wl-paste: %v", err)
+	}
+	if string(out) != want {
+		t.Fatalf("wl-paste = %q, want %q", out, want)
+	}
+
+	// Replacing the selection must close the channel (Write contract).
+	if err := exec.Command("wl-copy", "something-else").Run(); err != nil {
+		t.Fatalf("wl-copy: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("channel not closed after the selection was replaced")
+	}
+}
