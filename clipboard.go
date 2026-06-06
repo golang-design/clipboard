@@ -101,8 +101,12 @@ var (
 //		panic(err)
 //	}
 //
-// If Init returns an error, any subsequent Read/Write/Watch call
-// may result in an unrecoverable panic.
+// If Init returns an error because of a runtime dependency failure
+// (such as a missing libx11-dev), any subsequent Read/Write/Watch call
+// may result in an unrecoverable panic. In a CGO-disabled build
+// (CGO_ENABLED=0), Init returns an error and Read/Write/Watch degrade
+// gracefully instead of panicking: Read and Write return nil, and
+// Watch returns a closed channel.
 func Init() error {
 	initOnce.Do(func() {
 		initError = initialize()
