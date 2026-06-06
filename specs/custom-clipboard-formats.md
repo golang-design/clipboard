@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Implemented |
 | **Issue** | [#17](https://github.com/golang-design/clipboard/issues/17) |
 | **Supersedes** | POC in [#43](https://github.com/golang-design/clipboard/pull/43) |
 | **Also closes** | [#40](https://github.com/golang-design/clipboard/issues/40) (raw read/write) |
@@ -170,3 +170,38 @@ doc, err := clipboard.ReadAs(html, func(b []byte) (*Node, error) {
 - Out of scope (reserved, §6.x): selection axis (#67), enumeration (#89's
   remaining half — the tagged watch already shipped in #124), Wayland/web
   backends (#6/#64) — each lands as its own PR on top of this foundation.
+
+## 9. Outcome
+
+Shipped as `Register(mime string) Format`, `ReadAs[T]`, and `ErrNoData` (raw
+passthrough, idempotent registry), rolled out one PR per scope:
+
+| PR | Scope |
+|---|---|
+| #128 | Core registry: `Register`, `ReadAs`, `formatMIME`, `ErrNoData` |
+| #129 | macOS — `NSPasteboardType` from the MIME string |
+| #130 | Linux/X11 + BSD — MIME used directly as the target atom |
+| #131 | Linux/Wayland — data-control offers/requests the MIME verbatim |
+| #132 | Windows — `RegisterClipboardFormat` + global memory, sized via `GlobalSize` |
+| #133 | Docs + explicit mobile/nocgo graceful degradation |
+
+The `resolve` indirection from §5 stayed thin: every desktop backend already
+spoke MIME-shaped types, so resolution was the MIME string itself on X11/Wayland,
+an `NSString` pasteboard type on macOS, and a `RegisterClipboardFormat` id on
+Windows. No new Cgo surface, consistent with the purego/pure-Go backends.
+
+### Design evolution (discovered during implementation)
+
+- **Wayland self-read.** Under the data-control protocol a process does **not**
+  observe its own just-set custom selection from a fresh reader connection
+  (even after polling), although the built-in text/image formats happen to.
+  Cross-application read/write works and is the real use case, so it is verified
+  cross-process (wl-copy/wl-paste) and the same-process round-trip test skips on
+  Wayland. This narrows the §5 "self round-trip works on every desktop platform"
+  claim: it holds everywhere **except** Wayland custom formats.
+- **Windows length.** Raw custom data carries no explicit length, so reads are
+  sized with `GlobalSize`; it returns the exact requested size for the
+  `GMEM_MOVEABLE` allocations used here, so binary round-trips are byte-exact.
+- **Enumeration (#89) still reserved.** The tagged multi-format watch shipped in
+  #124 and already accepts registered tokens; `Formats() []Format` remains the
+  one unshipped half.
