@@ -69,3 +69,22 @@ jobs:
       if: ${{ runner.os == 'Windows'}}
       run: |
         go test -v -covermode=atomic .
+
+  # The clipboard package previously hung on 32-bit Windows (#45). Make
+  # sure it keeps compiling for GOARCH=386. The runtime behavior cannot be
+  # exercised here because GitHub-hosted runners are amd64 only.
+  windows_386_build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        stable: 'false'
+        go-version: '1.24.x'
+    - name: Build for windows/386
+      env:
+        GOOS: windows
+        GOARCH: 386
+      run: |
+        go build .
+        go build ./cmd/gclip
