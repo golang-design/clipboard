@@ -9,6 +9,7 @@
 package clipboard
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -108,5 +109,44 @@ func TestWaylandWriteText(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("channel not closed after the selection was replaced")
+	}
+}
+
+// TestWaylandWatch verifies the event-driven watch path: after a baseline, each
+// new clipboard value set by wl-copy is delivered on the channel. Runs under
+// headless sway; skips off-Wayland or without wl-clipboard.
+func TestWaylandWatch(t *testing.T) {
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		t.Skip("not a Wayland session (WAYLAND_DISPLAY unset)")
+	}
+	if _, err := exec.LookPath("wl-copy"); err != nil {
+		t.Skip("wl-copy not found")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := wlWatch(ctx, FmtText)
+	time.Sleep(300 * time.Millisecond) // let the watcher connect and baseline
+
+	for _, want := range []string{"wl-watch-1", "wl-watch-2"} {
+		if err := exec.Command("wl-copy", want).Run(); err != nil {
+			t.Fatalf("wl-copy: %v", err)
+		}
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case got, ok := <-ch:
+				if !ok {
+					t.Fatal("watch channel closed unexpectedly")
+				}
+				if strings.TrimRight(string(got), "\n") == want {
+					goto next
+				}
+				// stale value from an earlier change; keep draining
+			case <-deadline:
+				t.Fatalf("did not receive %q within timeout", want)
+			}
+		}
+	next:
 	}
 }
