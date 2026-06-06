@@ -13,12 +13,15 @@ import (
 	"testing"
 )
 
+// TestCustomFormatRoundTrip exercises the same-process write→read round-trip on
+// the X11 backend. The Wayland data-control backend is covered separately by
+// the cross-process interop tests (clipboard_custom_wayland_test.go): under
+// data-control a client does not observe its own just-set custom selection from
+// a fresh reader connection, so the real use case (exchanging custom data with
+// other apps) is what we verify there.
 func TestCustomFormatRoundTrip(t *testing.T) {
-	// This PR wires custom formats into the X11 backend only. Under Wayland
-	// (e.g. the headless-sway CI job) the data-control backend is used, where
-	// custom-format support lands in a separate PR; skip there for now.
 	if os.Getenv("WAYLAND_DISPLAY") != "" {
-		t.Skip("Wayland custom-format support lands in a separate PR")
+		t.Skip("Wayland custom formats are covered by the cross-process interop tests")
 	}
 	customRoundTrip(t)
 }
