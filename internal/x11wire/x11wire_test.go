@@ -218,6 +218,7 @@ func TestRequestEncoders(t *testing.T) {
 	checkHdr("ChangePropertyAtoms", ChangeProperty(1, 2, AtomATOM, 32, AtomList(4, 5)), opChangeProperty)
 	checkHdr("GetProperty", GetProperty(true, 1, 2, 0, 0, 0xffffffff), opGetProperty)
 	checkHdr("DeleteProperty", DeleteProperty(1, 2), opDeleteProperty)
+	checkHdr("GetInputFocus", GetInputFocus(), opGetInputFocus)
 	checkHdr("SendSelectionNotify", SendSelectionNotify(SelectionNotify{Requestor: 9}), opSendEvent)
 
 	// ChangeProperty format-8 length field is the byte count.
@@ -292,6 +293,18 @@ func TestNextEventMasksSendEventBit(t *testing.T) {
 	}
 	if p.EventCode() != EventSelectionNotify {
 		t.Errorf("event code = %d, want %d", p.EventCode(), EventSelectionNotify)
+	}
+}
+
+func TestSequenceAndErrorCode(t *testing.T) {
+	b := errorPacket(11)
+	binary.LittleEndian.PutUint16(b[2:], 1234)
+	p := Packet{Raw: b}
+	if p.Sequence() != 1234 {
+		t.Errorf("Sequence = %d, want 1234", p.Sequence())
+	}
+	if p.ErrorCode() != 11 {
+		t.Errorf("ErrorCode = %d, want 11", p.ErrorCode())
 	}
 }
 

@@ -32,6 +32,7 @@ const (
 	opConvertSelection  = 24
 	opSendEvent         = 25
 	opInternAtom        = 16
+	opGetInputFocus     = 43
 )
 
 // X11 event codes (subset).
@@ -382,6 +383,15 @@ func GetProperty(del bool, window, property, typ, longOffset, longLength uint32)
 	return b
 }
 
+// GetInputFocus builds a GetInputFocus request. It takes no arguments and
+// always produces a reply, so it serves as a cheap sync barrier to flush the
+// results (including any errors) of preceding fire-and-forget requests.
+func GetInputFocus() []byte {
+	b := make([]byte, 4)
+	reqHeader(b, opGetInputFocus, 0)
+	return b
+}
+
 // DeleteProperty builds a DeleteProperty request.
 func DeleteProperty(window, property uint32) []byte {
 	b := make([]byte, 12)
@@ -437,6 +447,13 @@ func (p Packet) IsEvent() bool { return p.Raw[0] >= 2 }
 
 // EventCode returns the event type, masking off the SendEvent-generated bit.
 func (p Packet) EventCode() byte { return p.Raw[0] & 0x7f }
+
+// Sequence returns the low 16 bits of the sequence number of the request a
+// reply or error corresponds to. Meaningless for events.
+func (p Packet) Sequence() uint16 { return le.Uint16(p.Raw[2:]) }
+
+// ErrorCode returns the X11 error code of an error packet.
+func (p Packet) ErrorCode() byte { return p.Raw[1] }
 
 // ReadPacket reads one packet from r. Replies carry an extra reply-length*4
 // bytes beyond the 32-byte header.

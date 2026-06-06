@@ -128,17 +128,20 @@ accessing system clipboards, but here are a few details you might need to know.
 ### Dependency
 
 - macOS: no Cgo, no build dependency
- - Linux: require X11 dev package for the X11 backend. For instance, install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
-   Wayland is supported natively (no Cgo, no `libwayland`) on compositors
+ - Linux: no Cgo, no build dependency. The X11 backend speaks the X11 wire
+   protocol directly over the display socket (no `libX11`), and the Wayland
+   backend speaks the Wayland protocol directly (no `libwayland`); a running X
+   server or Wayland compositor is required at runtime, but no dev package.
+   Wayland is supported natively on compositors
    that expose a data-control manager (`ext-data-control-v1`, e.g. GNOME ≥ 49,
    KWin, or `zwlr_data_control_manager_v1` on wlroots compositors such as Sway
    and Hyprland). When `WAYLAND_DISPLAY` is set and such a manager is present,
    the Wayland backend is used automatically; otherwise the package falls back
    to X11 (via XWayland under Wayland). Older compositors without data-control
    keep working through XWayland.
- - FreeBSD/OpenBSD/NetBSD: require Cgo and the X11 dev package (libX11),
-   same as Linux. FreeBSD and OpenBSD are verified in CI; NetBSD shares
-   the same X11 implementation on a best-effort basis and is untested.
+ - FreeBSD/OpenBSD/NetBSD: require Cgo and the X11 dev package (libX11).
+   FreeBSD and OpenBSD are verified in CI; NetBSD shares the same X11
+   implementation on a best-effort basis and is untested.
 - Windows: no Cgo, no dependency
 - iOS/Android: collaborate with [`gomobile`](https://golang.org/x/mobile)
 
