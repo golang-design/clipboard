@@ -8,17 +8,9 @@
 
 package clipboard_test
 
-import (
-	"os"
-	"testing"
-)
+import "testing"
 
-func TestCustomFormatRoundTrip(t *testing.T) {
-	// This PR wires custom formats into the X11 backend only. Under Wayland
-	// (e.g. the headless-sway CI job) the data-control backend is used, where
-	// custom-format support lands in a separate PR; skip there for now.
-	if os.Getenv("WAYLAND_DISPLAY") != "" {
-		t.Skip("Wayland custom-format support lands in a separate PR")
-	}
-	customRoundTrip(t)
-}
+// Custom formats are supported on both the X11 and Wayland (data-control)
+// Linux backends, so this runs on the X11 ubuntu job and the headless-sway
+// wayland job alike.
+func TestCustomFormatRoundTrip(t *testing.T) { customRoundTrip(t) }

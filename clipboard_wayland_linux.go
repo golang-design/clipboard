@@ -356,8 +356,15 @@ func wlRead(t Format) ([]byte, error) {
 		return wlReadSelection(textMIMEs)
 	case FmtImage:
 		return wlReadSelection(imageMIMEs)
+	default:
+		mime, ok := formatMIME(t)
+		if !ok {
+			return nil, errUnsupported
+		}
+		// Wayland advertises selections by MIME type, so a custom format's
+		// MIME string is offered/requested verbatim.
+		return wlReadSelection([]string{mime})
 	}
-	return nil, errUnsupported
 }
 
 // wlReadSelection connects to the compositor and reads the regular clipboard
@@ -541,7 +548,11 @@ func wlWrite(t Format, data []byte) (<-chan struct{}, error) {
 	case FmtImage:
 		mimes = imageMIMEs
 	default:
-		return nil, errUnsupported
+		mime, ok := formatMIME(t)
+		if !ok {
+			return nil, errUnsupported
+		}
+		mimes = []string{mime}
 	}
 
 	w, managerID, deviceID, err := wlConnectDevice()
@@ -662,8 +673,12 @@ func wlWatch(ctx context.Context, t Format) <-chan []byte {
 	case FmtImage:
 		mimes = imageMIMEs
 	default:
-		close(recv)
-		return recv
+		mime, ok := formatMIME(t)
+		if !ok {
+			close(recv)
+			return recv
+		}
+		mimes = []string{mime}
 	}
 
 	w, _, deviceID, err := wlConnectDevice()
