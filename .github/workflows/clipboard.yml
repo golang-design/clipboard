@@ -138,13 +138,17 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y sway libx11-dev wl-clipboard
-    - name: Run Wayland tests under headless sway
+    - name: Run the suite under headless sway
       run: |
         export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg"
         mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
         export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
-        printf 'exec "go test -count=1 -covermode=atomic -run Wayland -v . > /tmp/res.txt 2>&1; echo EXIT=$? >> /tmp/res.txt; swaymsg exit"\n' > /tmp/sway.conf
-        timeout 180 sway -c /tmp/sway.conf || true
+        # Run the whole suite as a sway client so the public API is exercised
+        # through the Wayland dispatch. xwayland is disabled (not needed; it
+        # would only log a missing-binary error). swaymsg's stderr is dropped
+        # because sway exits before acking the request.
+        printf 'xwayland disable\nexec "go test -count=1 -covermode=atomic -v . > /tmp/res.txt 2>&1; echo EXIT=$? >> /tmp/res.txt; swaymsg exit 2>/dev/null"\n' > /tmp/sway.conf
+        timeout 180 sway -c /tmp/sway.conf >/tmp/sway.log 2>&1 || true
         echo "----- go test output -----"
         cat /tmp/res.txt
-        grep -q "^EXIT=0$" /tmp/res.txt
+        grep -q "^EXIT=0$" /tmp/res.txt || { echo "----- sway log -----"; cat /tmp/sway.log; exit 1; }

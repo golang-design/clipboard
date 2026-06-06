@@ -23,8 +23,14 @@ func TestX11ProtocolErrorDoesNotCrash(t *testing.T) {
 	if err := Init(); err != nil {
 		t.Skipf("clipboard unavailable: %v", err)
 	}
-	if got := triggerProtocolError(); got != 0 {
-		t.Fatalf("triggerProtocolError() = %d, want 0 (X display unavailable?)", got)
+	got := triggerProtocolError()
+	if got == -1 {
+		// No X display (e.g. a pure Wayland session, where Init uses the
+		// Wayland backend); there is no X connection to provoke an error on.
+		t.Skip("no X display available")
+	}
+	if got != 0 {
+		t.Fatalf("triggerProtocolError() = %d, want 0", got)
 	}
 	// Reaching here means the process survived the protocol error.
 }

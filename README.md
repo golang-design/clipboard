@@ -8,7 +8,7 @@ import "golang.design/x/clipboard"
 
 ## Features
 
-- Cross platform supports: **macOS, Linux (X11), Windows, BSD (X11), iOS, and Android**
+- Cross platform supports: **macOS, Linux (X11 and Wayland), Windows, BSD (X11), iOS, and Android**
 - Copy/paste UTF-8 text
 - Copy/paste PNG encoded images (Desktop-only)
 - Command `gclip` as a demo application
@@ -128,9 +128,14 @@ accessing system clipboards, but here are a few details you might need to know.
 ### Dependency
 
 - macOS: require Cgo, no dependency
- - Linux: require X11 dev package. For instance, install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
-   Wayland sessions are currently unsupported; running under Wayland
-   typically requires an XWayland bridge and `DISPLAY` to be set.
+ - Linux: require X11 dev package for the X11 backend. For instance, install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
+   Wayland is supported natively (no Cgo, no `libwayland`) on compositors
+   that expose a data-control manager (`ext-data-control-v1`, e.g. GNOME ≥ 49,
+   KWin, or `zwlr_data_control_manager_v1` on wlroots compositors such as Sway
+   and Hyprland). When `WAYLAND_DISPLAY` is set and such a manager is present,
+   the Wayland backend is used automatically; otherwise the package falls back
+   to X11 (via XWayland under Wayland). Older compositors without data-control
+   keep working through XWayland.
  - FreeBSD/OpenBSD/NetBSD: require Cgo and the X11 dev package (libX11),
    same as Linux. FreeBSD and OpenBSD are verified in CI; NetBSD shares
    the same X11 implementation on a best-effort basis and is untested.
@@ -153,6 +158,11 @@ accessing system clipboards, but here are a few details you might need to know.
   supported.
 - **Image format.** Image read/write assumes PNG-encoded data; other
   encodings are undefined behavior.
+- **Wayland.** The native Wayland backend uses the data-control protocol,
+  which works without keyboard focus. Compositors that do not implement
+  `ext-data-control-v1` or `zwlr_data_control_manager_v1` (e.g. GNOME
+  before 49) are not supported natively; the package falls back to X11 via
+  XWayland there. The `PRIMARY` selection is not exposed on Wayland either.
 
 ### Screenshot
 

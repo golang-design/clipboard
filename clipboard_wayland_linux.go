@@ -410,7 +410,14 @@ func wlReadSelection(mimes []string) ([]byte, error) {
 	if chosen == "" {
 		return nil, nil // none of the requested formats are available
 	}
-	return wlReceiveOffer(w, selection, chosen)
+	data, err := wlReceiveOffer(w, selection, chosen)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil // normalize empty to nil, matching the X11 backend
+	}
+	return data, nil
 }
 
 // wlReceiveOffer requests data for mime from the given offer and reads it from
@@ -586,8 +593,10 @@ func wlWrite(t Format, data []byte) (<-chan struct{}, error) {
 			wlServeSend(w, body, data)
 		}
 		if obj == sourceID && op == srcEvtCancelled {
+			// Replaced immediately; deliver the overwrite signal and close.
 			w.Close()
-			done := make(chan struct{})
+			done := make(chan struct{}, 1)
+			done <- struct{}{}
 			close(done)
 			return done, nil
 		}
@@ -596,9 +605,14 @@ func wlWrite(t Format, data []byte) (<-chan struct{}, error) {
 		}
 	}
 
-	done := make(chan struct{})
+	// The channel receives one signal then closes when ownership is lost,
+	// matching the package Write contract.
+	done := make(chan struct{}, 1)
 	go func() {
-		defer close(done)
+		defer func() {
+			done <- struct{}{}
+			close(done)
+		}()
 		defer w.Close()
 		for {
 			obj, op, body, err := w.readEvent()
@@ -652,22 +666,82 @@ func wlWatch(ctx context.Context, t Format) <-chan []byte {
 		return recv
 	}
 
+	w, _, deviceID, err := wlConnectDevice()
+	if err != nil {
+		close(recv)
+		return recv
+	}
+
+	offers := make(map[uint32][]string)
+	// fetch resolves the data for a selection event: it forgets stale offers,
+	// then reads the current selection's bytes (nil if empty or unsupported).
+	fetch := func(sel uint32) []byte {
+		for id := range offers {
+			if id != sel {
+				w.request(id, offerOpcodeDestroy, nil)
+				delete(offers, id)
+			}
+		}
+		if sel == 0 {
+			return nil
+		}
+		chosen := pickMIME(mimes, offers[sel])
+		if chosen == "" {
+			return nil
+		}
+		d, err := wlReceiveOffer(w, sel, chosen)
+		if err != nil || len(d) == 0 {
+			return nil
+		}
+		return d
+	}
+
+	// Capture the current selection synchronously as the baseline (mirrors the
+	// X11 watch reading the current value before returning), so a write that
+	// happens right after Watch returns is reported rather than swallowed.
+	var last []byte
+	sync1, err := w.sync()
+	if err != nil {
+		w.Close()
+		close(recv)
+		return recv
+	}
+baseline:
+	for {
+		obj, op, body, err := w.readEvent()
+		if err != nil {
+			w.Close()
+			close(recv)
+			return recv
+		}
+		switch {
+		case obj == wlDisplayID && op == 0:
+			w.Close()
+			close(recv)
+			return recv
+		case obj == sync1 && op == 0:
+			break baseline
+		case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
+			offers[binary.LittleEndian.Uint32(body[0:])] = nil
+		case obj == deviceID && op == devEvtSelection && len(body) >= 4:
+			last = fetch(binary.LittleEndian.Uint32(body[0:]))
+		case op == offerEvtOffer:
+			if _, isOffer := offers[obj]; isOffer {
+				if mime, _, err := wlString(body, 0); err == nil {
+					offers[obj] = append(offers[obj], mime)
+				}
+			}
+		}
+	}
+
 	go func() {
 		defer close(recv)
-		w, _, deviceID, err := wlConnectDevice()
-		if err != nil {
-			return
-		}
 		defer w.Close()
 		// Closing the connection when ctx is done unblocks readEvent.
 		go func() {
 			<-ctx.Done()
 			w.Close()
 		}()
-
-		offers := make(map[uint32][]string)
-		var last []byte
-		baselineSet := false
 		for {
 			obj, op, body, err := w.readEvent()
 			if err != nil {
@@ -678,36 +752,8 @@ func wlWatch(ctx context.Context, t Format) <-chan []byte {
 				return
 			case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
 				offers[binary.LittleEndian.Uint32(body[0:])] = nil
-			case op == offerEvtOffer:
-				if _, isOffer := offers[obj]; isOffer {
-					if mime, _, err := wlString(body, 0); err == nil {
-						offers[obj] = append(offers[obj], mime)
-					}
-				}
 			case obj == deviceID && op == devEvtSelection && len(body) >= 4:
-				sel := binary.LittleEndian.Uint32(body[0:])
-				// Destroy and forget every offer except the current one.
-				for id := range offers {
-					if id != sel {
-						w.request(id, offerOpcodeDestroy, nil)
-						delete(offers, id)
-					}
-				}
-				var data []byte
-				if sel != 0 {
-					if chosen := pickMIME(mimes, offers[sel]); chosen != "" {
-						if d, err := wlReceiveOffer(w, sel, chosen); err == nil {
-							data = d
-						}
-					}
-				}
-				// The first selection event reflects the state at connect time;
-				// treat it as the baseline and only report later changes.
-				if !baselineSet {
-					baselineSet = true
-					last = data
-					continue
-				}
+				data := fetch(binary.LittleEndian.Uint32(body[0:]))
 				if bytes.Equal(data, last) {
 					continue
 				}
@@ -720,8 +766,33 @@ func wlWatch(ctx context.Context, t Format) <-chan []byte {
 				case <-ctx.Done():
 					return
 				}
+			case op == offerEvtOffer:
+				if _, isOffer := offers[obj]; isOffer {
+					if mime, _, err := wlString(body, 0); err == nil {
+						offers[obj] = append(offers[obj], mime)
+					}
+				}
 			}
 		}
 	}()
 	return recv
+}
+
+// useWayland is set by initialize() when the native Wayland backend is in use,
+// so read/write/watch dispatch to it instead of the X11 path.
+var useWayland bool
+
+// wlAvailable reports whether the process is in a Wayland session whose
+// compositor exposes a data-control manager (ext or wlroots). It performs a
+// real probe by connecting and listing globals.
+func wlAvailable() bool {
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		return false
+	}
+	globals, err := wlListGlobals()
+	if err != nil {
+		return false
+	}
+	_, _, ok := dataControlManager(globals)
+	return ok
 }

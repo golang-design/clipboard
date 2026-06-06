@@ -56,6 +56,14 @@ Then this package should be ready to use.
 `
 
 func initialize() error {
+	// Prefer the native Wayland backend when running under a Wayland session
+	// that exposes a data-control manager; this avoids the XWayland bridge and
+	// works without an X server. Fall back to X11 otherwise (including Wayland
+	// sessions whose compositor lacks data-control, via XWayland).
+	if wlAvailable() {
+		useWayland = true
+		return nil
+	}
 	ok := C.clipboard_test()
 	if ok != 0 {
 		return fmt.Errorf(helpmsg, errUnavailable)
@@ -64,6 +72,9 @@ func initialize() error {
 }
 
 func read(t Format) (buf []byte, err error) {
+	if useWayland {
+		return wlRead(t)
+	}
 	switch t {
 	case FmtText:
 		return readc("UTF8_STRING")
@@ -100,6 +111,9 @@ func readc(t string) ([]byte, error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
+	if useWayland {
+		return wlWrite(t, buf)
+	}
 	var s string
 	switch t {
 	case FmtText:
@@ -141,6 +155,9 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
+	if useWayland {
+		return wlWatch(ctx, t)
+	}
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
 	last := Read(t)
