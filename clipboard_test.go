@@ -257,6 +257,7 @@ func TestClipboardWatch(t *testing.T) {
 			}
 		}
 	}(ctx)
+loop:
 	for {
 		select {
 		case <-ctx.Done():
@@ -264,19 +265,27 @@ func TestClipboardWatch(t *testing.T) {
 				t.Fatalf("clipboard watch never receives a notification")
 			}
 			t.Log(string(lastRead))
-			return
+			break loop
 		case data, ok := <-changed:
 			if !ok {
 				if string(lastRead) == "" {
 					t.Fatalf("clipboard watch never receives a notification")
 				}
-				return
+				break loop
 			}
 			if !bytes.Equal(data, want) {
 				t.Fatalf("received data from watch mismatch, want: %v, got %v", string(want), string(data))
 			}
 			lastRead = data
 		}
+	}
+	select {
+	case _, ok := <-changed:
+		if ok {
+			t.Fatalf("changed channel should be closed after ctx.Done")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timeout waiting for changed to be closed")
 	}
 }
 
