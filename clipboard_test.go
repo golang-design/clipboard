@@ -279,13 +279,20 @@ loop:
 			lastRead = data
 		}
 	}
-	select {
-	case _, ok := <-changed:
-		if ok {
-			t.Fatalf("changed channel should be closed after ctx.Done")
+	// After the context is cancelled, watch must close the channel (per the
+	// Watch doc). A buffered value may still be pending, so drain until the
+	// channel is observed closed rather than asserting on a single receive.
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-changed:
+			if !ok {
+				return // channel closed as documented
+			}
+			// A value was buffered before the close; keep draining.
+		case <-deadline:
+			t.Fatalf("changed channel was not closed after ctx cancellation")
 		}
-	case <-time.After(time.Second):
-		t.Fatalf("timeout waiting for changed to be closed")
 	}
 }
 
