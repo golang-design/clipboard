@@ -122,3 +122,29 @@ jobs:
           go version
           CGO_ENABLED=1 go build .
           CGO_ENABLED=1 go build ./cmd/gclip
+
+  # Exercise the native Wayland backend against a headless sway compositor.
+  # sway implements a data-control manager (zwlr_data_control_manager_v1),
+  # which the Wayland clipboard backend needs and which weston/cage do not.
+  wayland_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        stable: 'false'
+        go-version: '1.24.x'
+    - name: Install sway and X11 dev headers
+      run: |
+        sudo apt update
+        sudo apt install -y sway libx11-dev
+    - name: Run Wayland tests under headless sway
+      run: |
+        export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg"
+        mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+        export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
+        printf 'exec "go test -count=1 -covermode=atomic -run Wayland -v . > /tmp/res.txt 2>&1; echo EXIT=$? >> /tmp/res.txt; swaymsg exit"\n' > /tmp/sway.conf
+        timeout 180 sway -c /tmp/sway.conf || true
+        echo "----- go test output -----"
+        cat /tmp/res.txt
+        grep -q "^EXIT=0$" /tmp/res.txt
