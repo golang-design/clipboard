@@ -25,13 +25,25 @@ func init() {
 	clipboard.Debug = true
 }
 
+// degradesWithoutCgo reports whether the clipboard falls back to the no-op
+// CGO_ENABLED=0 stubs on the current platform. Platforms with a cgo-free
+// backend (Windows, macOS, Linux, and the BSDs) keep working without cgo; only
+// the remaining cgo-only platforms (e.g. Android) degrade.
+func degradesWithoutCgo() bool {
+	switch runtime.GOOS {
+	case "windows", "darwin", "linux", "freebsd", "openbsd", "netbsd":
+		return false
+	}
+	return true
+}
+
 func TestClipboardInit(t *testing.T) {
 	t.Run("no-cgo", func(t *testing.T) {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); !ok || val != "0" {
 			t.Skip("CGO_ENABLED is set to 1")
 		}
-		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-			t.Skip("Windows, macOS and Linux do not need to check for cgo")
+		if !degradesWithoutCgo() {
+			t.Skip("this platform has a cgo-free backend; nothing to check")
 		}
 
 		if err := clipboard.Init(); !errors.Is(err, clipboard.ErrCgoDisabled) {
@@ -53,7 +65,7 @@ func TestClipboardInit(t *testing.T) {
 }
 
 func TestClipboard(t *testing.T) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if degradesWithoutCgo() {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -138,7 +150,7 @@ func TestClipboard(t *testing.T) {
 }
 
 func TestClipboardMultipleWrites(t *testing.T) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if degradesWithoutCgo() {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -185,7 +197,7 @@ func TestClipboardMultipleWrites(t *testing.T) {
 }
 
 func TestClipboardConcurrentRead(t *testing.T) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if degradesWithoutCgo() {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -211,7 +223,7 @@ func TestClipboardConcurrentRead(t *testing.T) {
 }
 
 func TestClipboardWriteEmpty(t *testing.T) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if degradesWithoutCgo() {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -230,7 +242,7 @@ func TestClipboardWriteEmpty(t *testing.T) {
 }
 
 func TestClipboardWatch(t *testing.T) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if degradesWithoutCgo() {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -313,8 +325,8 @@ func TestClipboardNoCgo(t *testing.T) {
 	if val, ok := os.LookupEnv("CGO_ENABLED"); !ok || val != "0" {
 		t.Skip("CGO_ENABLED is set to 1")
 	}
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		t.Skip("Windows, macOS and Linux should always be tested")
+	if !degradesWithoutCgo() {
+		t.Skip("this platform has a cgo-free backend and is always tested")
 	}
 
 	// When CGO is disabled, the clipboard cannot function but the public

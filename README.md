@@ -139,9 +139,10 @@ accessing system clipboards, but here are a few details you might need to know.
    the Wayland backend is used automatically; otherwise the package falls back
    to X11 (via XWayland under Wayland). Older compositors without data-control
    keep working through XWayland.
- - FreeBSD/OpenBSD/NetBSD: require Cgo and the X11 dev package (libX11).
-   FreeBSD and OpenBSD are verified in CI; NetBSD shares the same X11
-   implementation on a best-effort basis and is untested.
+ - FreeBSD/OpenBSD/NetBSD: no Cgo, no build dependency. They share Linux's
+   pure-Go X11 backend (no `libX11`); a running X server is required at runtime.
+   FreeBSD and OpenBSD are verified to build in CI; NetBSD is best-effort and
+   untested.
 - Windows: no Cgo, no dependency
 - iOS/Android: collaborate with [`gomobile`](https://golang.org/x/mobile)
 

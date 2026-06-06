@@ -4,19 +4,21 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build linux && !android
+//go:build (linux || freebsd || openbsd || netbsd) && !android
 
 package clipboard
 
-// Pure-Go X11 CLIPBOARD selection backend. It speaks the X11 wire protocol
-// (encoded/decoded by internal/x11wire) directly over the display socket, so it
-// needs no Cgo, no libX11 headers at build time, and no libX11.so at runtime.
+// Pure-Go X11 CLIPBOARD selection backend, shared by Linux and the BSDs. It
+// speaks the X11 wire protocol (encoded/decoded by internal/x11wire) directly
+// over the display socket, so it needs no Cgo, no libX11 headers at build time,
+// and no libX11.so at runtime.
 
 import (
 	"bufio"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -74,8 +76,11 @@ func (x *x11conn) reply(seq uint16) (x11wire.Packet, error) {
 // first, then the Linux abstract socket, then TCP.
 func x11Dial(d x11wire.Display) (net.Conn, error) {
 	if d.Net == "unix" {
-		if c, err := net.Dial("unix", d.Addr); err == nil {
-			return c, nil
+		c, err := net.Dial("unix", d.Addr)
+		if err == nil || runtime.GOOS != "linux" {
+			// The abstract-socket fallback below is Linux-only; the BSDs have
+			// no abstract unix namespace, so there is nothing more to try.
+			return c, err
 		}
 		return net.Dial("unix", "@/tmp/.X11-unix/X"+strconv.Itoa(d.Num))
 	}
