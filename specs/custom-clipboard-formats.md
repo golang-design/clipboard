@@ -64,8 +64,17 @@ func Register(mime string) Format
 func ReadAs[T any](f Format, decode func([]byte) (T, error)) (T, error)
 ```
 
-That's the entire new surface: one function plus one generic helper. `Read`,
-`Write`, `Watch` are unchanged and accept the new tokens directly.
+That's the entire new surface: one function plus one generic helper. `Read`
+and `Write` are unchanged and accept the new tokens directly. `Watch` is
+already variadic — `Watch(ctx, ...Format) <-chan Data` (shipped in #124 for
+#89) — so it accepts registered tokens too and tags every value with the
+`Format` it was detected in. Watching a custom format therefore needs **no
+new API**: `Watch(ctx, Register("text/html"))` works as soon as `resolve`
+(§5) maps the token. `Watch(ctx)` with no formats watches the built-ins
+(`FmtText`, `FmtImage`) only; registered formats are watched by passing
+their tokens explicitly, so the no-args default stays stable and cheap as
+the registry grows (rather than implicitly spinning up a watcher per
+ever-registered MIME type).
 
 ### Why not the original `Register[T any](fmt, read, write)` sketch?
 
@@ -113,7 +122,7 @@ with the purego migration (#83) — the exact opposite of the #43 POC.
 | #6 Wayland | **Fits natively** | Wayland's data model is MIME strings → the registry maps 1:1. New backend, same API. |
 | #64 web (wasm) | **Fits natively** | `ClipboardItem` is MIME-keyed → same. (Caveats below.) |
 | #67 Linux 2nd selection | **Orthogonal axis** | PRIMARY vs CLIPBOARD is a *selection* axis, not a data-type axis. Must NOT be folded into `Format`. |
-| #89 watch-all + type | **Orthogonal axis** | Needs *enumeration* (“what's on the clipboard?”), reserved as `Formats() []Format`. |
+| #89 watch-all + type | **Partly shipped** | Tagged multi-format watch shipped in #124: `Watch(ctx, ...Format) <-chan Data` already accepts registered tokens. Remaining: *enumeration* (“what's on the clipboard?”), reserved as `Formats() []Format`. |
 | #48 Windows img bug | **Escape hatch** | Raw passthrough lets users bypass the lossy DIB/PNG conversion. |
 | #25/#69/#83 remove Cgo | **Unaffected** | `resolve` is pure Go; compatible with purego. |
 | #22 throttle reads | **Unaffected** | X11 serving behavior; independent. |
@@ -127,8 +136,12 @@ overloaded onto `Format`:
 1. **Selection** (#67): CLIPBOARD vs PRIMARY (X11), general vs find pasteboard
    (macOS). Future: a functional-option parameter on Read/Write/Watch, e.g.
    `clipboard.Read(f, clipboard.Primary())` — never a new `Format`.
-2. **Enumeration** (#89): discover available formats. Future: `func Formats() []Format`
-   plus a typed watch. The MIME registry is what makes this expressible.
+2. **Enumeration** (#89): discover available formats. The *typed/tagged watch*
+   half of #89 already shipped (`Watch(ctx, ...Format) <-chan Data`, #124) and
+   accepts registered tokens directly, so the registry needs no watch-API
+   changes. What remains reserved is enumeration — `func Formats() []Format`
+   (“what's on the clipboard right now?”). The MIME registry is what makes this
+   expressible.
 3. **Capability / async** (#64 web, Wayland permissions): the web clipboard is async
    and permission-gated, and today's `Read() []byte` swallows errors as `nil`.
    `ReadAs[T]` (which returns `error`) is the seam where an error-returning /
@@ -154,6 +167,6 @@ doc, err := clipboard.ReadAs(html, func(b []byte) (*Node, error) {
 - `Register`, `ReadAs[T]`, the registry, and `resolve` on all desktop platforms.
 - Round-trip tests per platform; doc + README update (incl. the BSD platforms
   currently missing from the README).
-- Out of scope (reserved, §6.x): selection axis (#67), enumeration / watch-all
-  (#89), Wayland/web backends (#6/#64) — each lands as its own PR on top of this
-  foundation.
+- Out of scope (reserved, §6.x): selection axis (#67), enumeration (#89's
+  remaining half — the tagged watch already shipped in #124), Wayland/web
+  backends (#6/#64) — each lands as its own PR on top of this foundation.
