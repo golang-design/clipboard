@@ -24,9 +24,6 @@ import (
 // for screenshots and the "Copy Image" command in many apps. Reading such a
 // clipboard previously returned nil because only PNG data was requested.
 func TestReadImageTIFF(t *testing.T) {
-	if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-		t.Skip("CGO_ENABLED is set to 0")
-	}
 
 	gold, err := os.ReadFile("tests/testdata/clipboard.png")
 	if err != nil {

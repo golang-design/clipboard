@@ -9,12 +9,15 @@
 package clipboard
 
 import (
+	"bytes"
 	"context"
+	"image/png"
 	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
+	"golang.org/x/image/tiff"
 )
 
 var (
@@ -22,6 +25,7 @@ var (
 
 	_NSPasteboardTypeString = must2(purego.Dlsym(appkit, "NSPasteboardTypeString"))
 	_NSPasteboardTypePNG    = must2(purego.Dlsym(appkit, "NSPasteboardTypePNG"))
+	_NSPasteboardTypeTIFF   = must2(purego.Dlsym(appkit, "NSPasteboardTypeTIFF"))
 
 	class_NSPasteboard = objc.GetClass("NSPasteboard")
 	class_NSData       = objc.GetClass("NSData")
@@ -132,13 +136,13 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	return recv
 }
 
-func clipboard_read_string() []byte {
-	var pasteboard = objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	var data = pasteboard.Send(sel_dataForType, _NSPasteboardTypeString)
+// nsdataBytes copies the contents of an NSData object into a new byte
+// slice, returning nil if the object is null or empty.
+func nsdataBytes(data objc.ID) []byte {
 	if data == 0 {
 		return nil
 	}
-	var size = uint(data.Send(sel_length))
+	size := uint(data.Send(sel_length))
 	if size == 0 {
 		return nil
 	}
@@ -147,16 +151,33 @@ func clipboard_read_string() []byte {
 	return out
 }
 
+func clipboard_read_string() []byte {
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	return nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypeString))
+}
+
 func clipboard_read_image() []byte {
-	var pasteboard = objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	data := pasteboard.Send(sel_dataForType, _NSPasteboardTypePNG)
-	if data == 0 {
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	if out := nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypePNG)); out != nil {
+		return out
+	}
+
+	// macOS stores copied images as TIFF by default (e.g. screenshots and
+	// "Copy Image" in many apps). Fall back to TIFF and transcode to PNG so
+	// callers always receive PNG data, consistent with the other platforms.
+	raw := nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypeTIFF))
+	if raw == nil {
 		return nil
 	}
-	size := data.Send(sel_length)
-	out := make([]byte, size)
-	data.Send(sel_getBytesLength, unsafe.SliceData(out), size)
-	return out
+	img, err := tiff.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil
+	}
+	return buf.Bytes()
 }
 
 func clipboard_write_image(bytes []byte) bool {
