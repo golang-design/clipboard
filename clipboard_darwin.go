@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"image/png"
+	"runtime"
 	"time"
 	"unsafe"
 
@@ -27,9 +28,13 @@ var (
 	_NSPasteboardTypePNG    = must2(purego.Dlsym(appkit, "NSPasteboardTypePNG"))
 	_NSPasteboardTypeTIFF   = must2(purego.Dlsym(appkit, "NSPasteboardTypeTIFF"))
 
-	class_NSPasteboard = objc.GetClass("NSPasteboard")
-	class_NSData       = objc.GetClass("NSData")
+	class_NSPasteboard      = objc.GetClass("NSPasteboard")
+	class_NSData            = objc.GetClass("NSData")
+	class_NSAutoreleasePool = objc.GetClass("NSAutoreleasePool")
 
+	sel_alloc               = objc.RegisterName("alloc")
+	sel_init                = objc.RegisterName("init")
+	sel_drain               = objc.RegisterName("drain")
 	sel_generalPasteboard   = objc.RegisterName("generalPasteboard")
 	sel_length              = objc.RegisterName("length")
 	sel_getBytesLength      = objc.RegisterName("getBytes:length:")
@@ -56,6 +61,27 @@ func must2(sym uintptr, err error) uintptr {
 }
 
 func initialize() error { return nil }
+
+// newAutoreleasePool creates an NSAutoreleasePool and returns a function that
+// drains it. Every pasteboard operation runs inside one: accessors such as
+// -dataForType: and +[NSData dataWithBytes:length:] return autoreleased
+// objects, but these goroutines run on arbitrary OS threads with no pool of
+// their own, so without draining the objects leak — notably in the per-second
+// poll loops driven by write and watch. Use as: defer newAutoreleasePool()().
+//
+// An autorelease pool is thread-local and must be drained on the same OS
+// thread it was created on. A goroutine can otherwise migrate threads between
+// creation and drain (e.g. across the allocations in the TIFF transcode),
+// which crashes when the pool is popped on the wrong thread. Pin the OS thread
+// for the pool's lifetime to keep creation and drain together.
+func newAutoreleasePool() (drain func()) {
+	runtime.LockOSThread()
+	pool := objc.ID(class_NSAutoreleasePool).Send(sel_alloc).Send(sel_init)
+	return func() {
+		pool.Send(sel_drain)
+		runtime.UnlockOSThread()
+	}
+}
 
 func read(t Format) (buf []byte, err error) {
 	switch t {
@@ -148,15 +174,18 @@ func nsdataBytes(data objc.ID) []byte {
 	}
 	out := make([]byte, size)
 	data.Send(sel_getBytesLength, unsafe.SliceData(out), size)
+	runtime.KeepAlive(out)
 	return out
 }
 
 func clipboard_read_string() []byte {
+	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
 	return nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypeString))
 }
 
 func clipboard_read_image() []byte {
+	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
 	if out := nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypePNG)); out != nil {
 		return out
@@ -180,20 +209,25 @@ func clipboard_read_image() []byte {
 	return buf.Bytes()
 }
 
-func clipboard_write_image(bytes []byte) bool {
+func clipboard_write_image(buf []byte) bool {
+	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(bytes), len(bytes))
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
+	runtime.KeepAlive(buf)
 	pasteboard.Send(sel_clearContents)
 	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypePNG) != 0
 }
 
-func clipboard_write_string(bytes []byte) bool {
+func clipboard_write_string(buf []byte) bool {
+	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(bytes), len(bytes))
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
+	runtime.KeepAlive(buf)
 	pasteboard.Send(sel_clearContents)
 	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypeString) != 0
 }
 
 func clipboard_change_count() int {
+	defer newAutoreleasePool()()
 	return int(objc.ID(class_NSPasteboard).Send(sel_generalPasteboard).Send(sel_changeCount))
 }
