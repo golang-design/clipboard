@@ -88,3 +88,37 @@ jobs:
       run: |
         go build .
         go build ./cmd/gclip
+
+  # The BSDs are not available as GitHub-hosted runners, so build the X11
+  # cgo path inside a VM to make sure it keeps compiling (see #55). The
+  # clipboard needs a running X server at runtime, which is out of scope
+  # for these build-only jobs.
+  freebsd_build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build on FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        usesh: true
+        prepare: |
+          pkg install -y go libX11
+        run: |
+          go version
+          CGO_ENABLED=1 go build .
+          CGO_ENABLED=1 go build ./cmd/gclip
+
+  openbsd_build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build on OpenBSD
+      uses: vmactions/openbsd-vm@v1
+      with:
+        usesh: true
+        prepare: |
+          pkg_add -I go
+        run: |
+          go version
+          CGO_ENABLED=1 go build .
+          CGO_ENABLED=1 go build ./cmd/gclip
