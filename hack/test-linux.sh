@@ -37,7 +37,7 @@ echo "Running Linux/X11 tests in ${runtime} (golang:${GO_VERSION})..."
 exec "${runtime}" run --rm -v "${repo_root}":/src -w /src "golang:${GO_VERSION}" bash -c '
 	set -e
 	apt-get update -qq >/dev/null
-	apt-get install -y -qq libx11-dev xvfb >/dev/null 2>&1
+	apt-get install -y -qq libx11-dev xvfb xclip >/dev/null 2>&1
 	echo "--- go test (CGO_ENABLED=1, X11 path) ---"
 	CGO_ENABLED=1 xvfb-run -a go test -count=1 -covermode=atomic .
 	echo "--- go test (CGO_ENABLED=0, nocgo path) ---"
