@@ -23,6 +23,7 @@ int clipboard_write(
 	uintptr_t      handle
 );
 unsigned long clipboard_read(char* typ, char **out);
+int clipboard_trigger_protocol_error();
 */
 import "C"
 import (
@@ -169,4 +170,12 @@ func syncStatus(h uintptr, val int) {
 	v := cgo.Handle(h).Value().(chan int)
 	v <- val
 	cgo.Handle(h).Delete()
+}
+
+// triggerProtocolError deliberately provokes an X11 protocol error to verify
+// that the handler installed by initX11 keeps the process alive (see #61). It
+// returns 0 if the process survived, or a negative value if X is unavailable.
+// Exposed only for the regression test.
+func triggerProtocolError() int {
+	return int(C.clipboard_trigger_protocol_error())
 }

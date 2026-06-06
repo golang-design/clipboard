@@ -33,6 +33,19 @@ int (*P_XGetWindowProperty) (Display*, Window, Atom, long, long, Bool, Atom, Ato
 void (*P_XFree) (void*);
 void (*P_XDeleteProperty) (Display*, Window, Atom);
 void (*P_XConvertSelection)(Display*, Atom, Atom, Atom, Window, Time);
+int (*P_XSetErrorHandler)(int (*)(Display*, XErrorEvent*));
+int (*P_XSync)(Display*, int);
+
+// ignoreXError swallows asynchronous X11 protocol errors instead of letting
+// Xlib's default handler terminate the whole process. On a pure Wayland
+// session the X selection can be served against an invalid requestor window,
+// producing a BadWindow error on X_ChangeProperty; without this handler Xlib
+// would print the error and call exit(1), crashing the host program (see #61).
+int ignoreXError(Display* d, XErrorEvent* e) {
+	(void)d;
+	(void)e;
+	return 0; // the return value is ignored by Xlib
+}
 
 int initX11() {
 	if (libX11) {
@@ -61,6 +74,15 @@ int initX11() {
 	P_XFree = (void (*)(void*)) dlsym(libX11, "XFree");
 	P_XDeleteProperty = (void (*)(Display*, Window, Atom)) dlsym(libX11, "XDeleteProperty");
 	P_XConvertSelection = (void (*)(Display*, Atom, Atom, Atom, Window, Time)) dlsym(libX11, "XConvertSelection");
+	P_XSetErrorHandler = (int (*)(int (*)(Display*, XErrorEvent*))) dlsym(libX11, "XSetErrorHandler");
+	P_XSync = (int (*)(Display*, int)) dlsym(libX11, "XSync");
+
+	// Install a handler so an asynchronous protocol error can never abort the
+	// host process (see #61). This is process-global, as Xlib offers no
+	// per-display protocol error handler.
+	if (P_XSetErrorHandler != NULL) {
+		(*P_XSetErrorHandler)(ignoreXError);
+	}
 	return 1;
 }
 
@@ -102,6 +124,31 @@ int clipboard_test() {
 	Display* d = openDisplay();
 	if (d == NULL) {
 		return -1;
+	}
+	(*P_XCloseDisplay)(d);
+	return 0;
+}
+
+// clipboard_trigger_protocol_error deliberately issues an invalid X request to
+// verify that the error handler installed by initX11 keeps the process alive.
+// It returns 0 if the process survived the resulting protocol error, or a
+// negative value if the X display is unavailable. Without the handler, Xlib's
+// default handler would call exit(1). Exposed only for the #61 regression test.
+int clipboard_trigger_protocol_error() {
+	if (!initX11()) {
+		return -1;
+	}
+	Display* d = openDisplay();
+	if (d == NULL) {
+		return -1;
+	}
+	Atom prop = (*P_XInternAtom)(d, "GOLANG_DESIGN_ERRTEST", 0);
+	unsigned char val = 1;
+	// 0xffffffff is not a valid window, so this yields a BadWindow protocol
+	// error on X_ChangeProperty (the same opcode that crashed in #61).
+	(*P_XChangeProperty)(d, (Window)0xffffffff, prop, XA_ATOM, 8, PropModeReplace, &val, 1);
+	if (P_XSync != NULL) {
+		(*P_XSync)(d, 0); // flush so the error is delivered to our handler
 	}
 	(*P_XCloseDisplay)(d);
 	return 0;
