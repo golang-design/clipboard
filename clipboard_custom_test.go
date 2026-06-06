@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"os"
 	"testing"
+	"time"
 
 	"golang.design/x/clipboard"
 )
@@ -35,7 +36,16 @@ func customRoundTrip(t *testing.T) {
 	want := []byte{0x00, 0x01, 0x02, 0xff, 0xfe, 'h', 'i', 0x00, 0x80}
 	clipboard.Write(f, want)
 
-	got := clipboard.Read(f)
+	// Poll Read briefly: on some backends (notably Wayland data-control) the
+	// newly set selection takes a moment to become visible to a fresh reader
+	// connection, so an immediate Read can miss it.
+	var got []byte
+	for i := 0; i < 50; i++ {
+		if got = clipboard.Read(f); got != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("custom format round-trip mismatch:\n want %v\n  got %v", want, got)
 	}
