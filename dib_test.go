@@ -53,6 +53,24 @@ func TestImageToDIB16Bit(t *testing.T) {
 	}
 }
 
+// TestImageToDIBStraightAlpha guards against #105: the DIB header declares
+// straight alpha, so transparent pixels must be stored non-premultiplied.
+// The previous code stored color.Color.RGBA()'s premultiplied (darkened) RGB.
+func TestImageToDIBStraightAlpha(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	// Semi-transparent: straight RGB are 200,100,50; premultiplied would be
+	// roughly halved (~100,50,25), so the two storage choices clearly differ.
+	want := color.NRGBA{R: 200, G: 100, B: 50, A: 128}
+	img.SetNRGBA(0, 0, want)
+
+	dib := imageToDIB(img)
+	b, g, r, a := pixelAt(dib, 1, 1, 0, 0)
+	if r != want.R || g != want.G || b != want.B || a != want.A {
+		t.Errorf("got BGRA=%d,%d,%d,%d, want straight R=%d G=%d B=%d A=%d",
+			b, g, r, a, want.R, want.G, want.B, want.A)
+	}
+}
+
 // TestImageToDIBJPEGPNGPipeline reproduces the exact pipeline from #48: an
 // image is encoded to JPEG, decoded (yielding *image.YCbCr), re-encoded to
 // PNG (which emits 16-bit truecolor for a non-RGBA color model), then decoded
