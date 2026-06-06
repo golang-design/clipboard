@@ -10,7 +10,10 @@ package clipboard
 
 import (
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestWaylandDiscoverGlobals verifies the wire core can connect to a Wayland
@@ -41,4 +44,31 @@ func TestWaylandDiscoverGlobals(t *testing.T) {
 	}
 	t.Logf("data-control manager: %s (name=%d, version=%d); %d globals total",
 		iface, g.name, g.version, len(globals))
+}
+
+// TestWaylandReadText verifies the data-control read path: it sets the
+// clipboard with wl-copy (an independent client) and reads it back through the
+// backend. Runs under headless sway in CI; skips off-Wayland or without
+// wl-copy.
+func TestWaylandReadText(t *testing.T) {
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		t.Skip("not a Wayland session (WAYLAND_DISPLAY unset)")
+	}
+	if _, err := exec.LookPath("wl-copy"); err != nil {
+		t.Skip("wl-copy not found")
+	}
+
+	const want = "hello-wayland-read"
+	if err := exec.Command("wl-copy", want).Run(); err != nil {
+		t.Fatalf("wl-copy: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond) // let wl-copy acquire selection ownership
+
+	got, err := wlRead(FmtText)
+	if err != nil {
+		t.Fatalf("wlRead: %v", err)
+	}
+	if strings.TrimRight(string(got), "\n") != want {
+		t.Fatalf("wlRead = %q, want %q", got, want)
+	}
 }

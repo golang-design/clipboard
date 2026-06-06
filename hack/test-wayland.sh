@@ -38,7 +38,7 @@ echo "Running Wayland tests in ${runtime} (golang:${GO_VERSION}) under headless 
 exec "${runtime}" run --rm -v "${repo_root}":/src -w /src "golang:${GO_VERSION}" bash -c '
 	set -e
 	apt-get update -qq >/dev/null
-	apt-get install -y -qq sway libx11-dev >/dev/null 2>&1
+	apt-get install -y -qq sway libx11-dev wl-clipboard >/dev/null 2>&1
 	export XDG_RUNTIME_DIR=/tmp/xdg
 	mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
 	export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman

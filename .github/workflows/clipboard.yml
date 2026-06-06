@@ -137,7 +137,7 @@ jobs:
     - name: Install sway and X11 dev headers
       run: |
         sudo apt update
-        sudo apt install -y sway libx11-dev
+        sudo apt install -y sway libx11-dev wl-clipboard
     - name: Run Wayland tests under headless sway
       run: |
         export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg"
