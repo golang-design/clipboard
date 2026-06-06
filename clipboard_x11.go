@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"time"
 
-	"golang.design/x/clipboard/internal/x11wire"
+	x11wire "golang.design/x/x11"
 )
 
 // x11ReadTimeout bounds a single Read so a missing SelectionNotify (e.g. an

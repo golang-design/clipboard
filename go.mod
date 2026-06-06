@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/ebitengine/purego v0.10.1
+	golang.design/x/x11 v0.1.0
 	golang.org/x/image v0.28.0
 	golang.org/x/mobile v0.0.0-20250606033058-a2a15c67f36f
 )
