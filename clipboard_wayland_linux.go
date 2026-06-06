@@ -16,6 +16,8 @@ package clipboard
 // (the seat and the data-control manager).
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -285,6 +287,7 @@ const (
 	devEvtSelection = 1
 	// offer
 	offerOpcodeReceive = 0
+	offerOpcodeDestroy = 1
 	offerEvtOffer      = 0
 	// source requests
 	srcOpcodeOffer = 0
@@ -407,25 +410,25 @@ func wlReadSelection(mimes []string) ([]byte, error) {
 	if chosen == "" {
 		return nil, nil // none of the requested formats are available
 	}
+	return wlReceiveOffer(w, selection, chosen)
+}
 
-	// offer.receive(mime, fd): hand the compositor the write end of a pipe.
+// wlReceiveOffer requests data for mime from the given offer and reads it from
+// a pipe whose write end is handed to the compositor (SCM_RIGHTS).
+func wlReceiveOffer(w *wlConn, offerID uint32, mime string) ([]byte, error) {
 	r, wp, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	if err := w.requestFd(selection, offerOpcodeReceive, wlEncodeString(chosen), int(wp.Fd())); err != nil {
+	if err := w.requestFd(offerID, offerOpcodeReceive, wlEncodeString(mime), int(wp.Fd())); err != nil {
 		r.Close()
 		wp.Close()
 		return nil, err
 	}
 	wp.Close() // close our copy so the reader observes EOF once the source is done
-
 	data, err := io.ReadAll(r)
 	r.Close()
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	return data, err
 }
 
 // pickMIME returns the first of want that appears in have, or "".
@@ -630,4 +633,95 @@ func wlServeSend(w *wlConn, body []byte, data []byte) {
 	}
 	_, _ = f.Write(data)
 	f.Close()
+}
+
+// wlWatch watches the clipboard for changes of the given format and delivers
+// each new value on the returned channel until ctx is cancelled (then the
+// channel is closed). The data-control device reports a selection event on
+// every change, so this is event-driven rather than polled.
+func wlWatch(ctx context.Context, t Format) <-chan []byte {
+	recv := make(chan []byte, 1)
+	var mimes []string
+	switch t {
+	case FmtText:
+		mimes = textMIMEs
+	case FmtImage:
+		mimes = imageMIMEs
+	default:
+		close(recv)
+		return recv
+	}
+
+	go func() {
+		defer close(recv)
+		w, _, deviceID, err := wlConnectDevice()
+		if err != nil {
+			return
+		}
+		defer w.Close()
+		// Closing the connection when ctx is done unblocks readEvent.
+		go func() {
+			<-ctx.Done()
+			w.Close()
+		}()
+
+		offers := make(map[uint32][]string)
+		var last []byte
+		baselineSet := false
+		for {
+			obj, op, body, err := w.readEvent()
+			if err != nil {
+				return
+			}
+			switch {
+			case obj == wlDisplayID && op == 0:
+				return
+			case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
+				offers[binary.LittleEndian.Uint32(body[0:])] = nil
+			case op == offerEvtOffer:
+				if _, isOffer := offers[obj]; isOffer {
+					if mime, _, err := wlString(body, 0); err == nil {
+						offers[obj] = append(offers[obj], mime)
+					}
+				}
+			case obj == deviceID && op == devEvtSelection && len(body) >= 4:
+				sel := binary.LittleEndian.Uint32(body[0:])
+				// Destroy and forget every offer except the current one.
+				for id := range offers {
+					if id != sel {
+						w.request(id, offerOpcodeDestroy, nil)
+						delete(offers, id)
+					}
+				}
+				var data []byte
+				if sel != 0 {
+					if chosen := pickMIME(mimes, offers[sel]); chosen != "" {
+						if d, err := wlReceiveOffer(w, sel, chosen); err == nil {
+							data = d
+						}
+					}
+				}
+				// The first selection event reflects the state at connect time;
+				// treat it as the baseline and only report later changes.
+				if !baselineSet {
+					baselineSet = true
+					last = data
+					continue
+				}
+				if bytes.Equal(data, last) {
+					continue
+				}
+				last = data
+				if data == nil {
+					continue // cleared or unsupported format; nothing to deliver
+				}
+				select {
+				case recv <- data:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return recv
 }
