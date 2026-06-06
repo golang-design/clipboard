@@ -74,6 +74,12 @@ static int displayUnavailable = 0;
 // openDisplay opens the X11 display, retrying a few times to tolerate a
 // transient race during startup. A persistent failure is cached so that
 // subsequent calls return immediately rather than retrying.
+//
+// Note: the fail-fast caching is not covered by a unit test. Its only
+// observable effect is latency, and that only matters when XOpenDisplay
+// itself is slow (e.g. a TCP timeout to an unreachable X server); with no
+// DISPLAY or a missing socket it fails instantly, so there is nothing
+// deterministic to assert without a timing heuristic.
 Display* openDisplay() {
 	if (displayUnavailable) {
 		return NULL;
