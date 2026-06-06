@@ -67,6 +67,14 @@ all supported ones):
 		}
 	}
 
+Besides the built-in FmtText and FmtImage, Register maps a MIME type to a
+custom Format token usable with Read, Write, and Watch. Custom formats are
+raw passthrough: the exact bytes are exchanged under that MIME type with no
+conversion. Use ReadAs to decode into a typed value. Custom formats are
+supported on the desktop backends (macOS, Windows, Linux/X11, BSD/X11, and
+Linux/Wayland for cross-application exchange); on iOS, Android, and
+CGO-disabled builds they degrade gracefully like the rest of the API.
+
 # Platform-specific caveats
 
 On Linux/X11 the clipboard follows the X11 selection-ownership model:
