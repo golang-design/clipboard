@@ -127,7 +127,7 @@ accessing system clipboards, but here are a few details you might need to know.
 
 ### Dependency
 
-- macOS: require Cgo, no dependency
+- macOS: no Cgo, no build dependency
  - Linux: require X11 dev package for the X11 backend. For instance, install `libx11-dev` or `xorg-dev` or `libX11-devel` to access X window system.
    Wayland is supported natively (no Cgo, no `libwayland`) on compositors
    that expose a data-control manager (`ext-data-control-v1`, e.g. GNOME ≥ 49,

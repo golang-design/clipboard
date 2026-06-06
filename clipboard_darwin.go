@@ -8,82 +8,123 @@
 
 package clipboard
 
-/*
-#cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework Foundation -framework Cocoa
-#import <Foundation/Foundation.h>
-#import <Cocoa/Cocoa.h>
-
-unsigned int clipboard_read_string(void **out);
-unsigned int clipboard_read_image(void **out);
-int clipboard_write_string(const void *bytes, NSInteger n);
-int clipboard_write_image(const void *bytes, NSInteger n);
-NSInteger clipboard_change_count();
-*/
-import "C"
 import (
+	"bytes"
 	"context"
+	"image/png"
+	"runtime"
 	"time"
 	"unsafe"
+
+	"github.com/ebitengine/purego"
+	"github.com/ebitengine/purego/objc"
+	"golang.org/x/image/tiff"
 )
+
+var (
+	appkit = must(purego.Dlopen("/System/Library/Frameworks/AppKit.framework/AppKit", purego.RTLD_GLOBAL|purego.RTLD_NOW))
+
+	_NSPasteboardTypeString = must2(purego.Dlsym(appkit, "NSPasteboardTypeString"))
+	_NSPasteboardTypePNG    = must2(purego.Dlsym(appkit, "NSPasteboardTypePNG"))
+	_NSPasteboardTypeTIFF   = must2(purego.Dlsym(appkit, "NSPasteboardTypeTIFF"))
+
+	class_NSPasteboard      = objc.GetClass("NSPasteboard")
+	class_NSData            = objc.GetClass("NSData")
+	class_NSAutoreleasePool = objc.GetClass("NSAutoreleasePool")
+
+	sel_alloc               = objc.RegisterName("alloc")
+	sel_init                = objc.RegisterName("init")
+	sel_drain               = objc.RegisterName("drain")
+	sel_generalPasteboard   = objc.RegisterName("generalPasteboard")
+	sel_length              = objc.RegisterName("length")
+	sel_getBytesLength      = objc.RegisterName("getBytes:length:")
+	sel_dataForType         = objc.RegisterName("dataForType:")
+	sel_clearContents       = objc.RegisterName("clearContents")
+	sel_setDataForType      = objc.RegisterName("setData:forType:")
+	sel_dataWithBytesLength = objc.RegisterName("dataWithBytes:length:")
+	sel_changeCount         = objc.RegisterName("changeCount")
+)
+
+func must(sym uintptr, err error) uintptr {
+	if err != nil {
+		panic(err)
+	}
+	return sym
+}
+
+func must2(sym uintptr, err error) uintptr {
+	if err != nil {
+		panic(err)
+	}
+	// dlsym returns a pointer to the object so dereference like this to avoid possible misuse of 'unsafe.Pointer' warning
+	return **(**uintptr)(unsafe.Pointer(&sym))
+}
 
 func initialize() error { return nil }
 
+// newAutoreleasePool creates an NSAutoreleasePool and returns a function that
+// drains it. Every pasteboard operation runs inside one: accessors such as
+// -dataForType: and +[NSData dataWithBytes:length:] return autoreleased
+// objects, but these goroutines run on arbitrary OS threads with no pool of
+// their own, so without draining the objects leak — notably in the per-second
+// poll loops driven by write and watch. Use as: defer newAutoreleasePool()().
+//
+// An autorelease pool is thread-local and must be drained on the same OS
+// thread it was created on. A goroutine can otherwise migrate threads between
+// creation and drain (e.g. across the allocations in the TIFF transcode),
+// which crashes when the pool is popped on the wrong thread. Pin the OS thread
+// for the pool's lifetime to keep creation and drain together.
+func newAutoreleasePool() (drain func()) {
+	runtime.LockOSThread()
+	pool := objc.ID(class_NSAutoreleasePool).Send(sel_alloc).Send(sel_init)
+	return func() {
+		pool.Send(sel_drain)
+		runtime.UnlockOSThread()
+	}
+}
+
 func read(t Format) (buf []byte, err error) {
-	var (
-		data unsafe.Pointer
-		n    C.uint
-	)
 	switch t {
 	case FmtText:
-		n = C.clipboard_read_string(&data)
+		return clipboard_read_string(), nil
 	case FmtImage:
-		n = C.clipboard_read_image(&data)
+		return clipboard_read_image(), nil
 	}
-	if data == nil {
-		return nil, errUnavailable
-	}
-	defer C.free(unsafe.Pointer(data))
-	if n == 0 {
-		return nil, nil
-	}
-	return C.GoBytes(data, C.int(n)), nil
+	return nil, errUnavailable
 }
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	var ok C.int
+	var ok bool
 	switch t {
 	case FmtText:
 		if len(buf) == 0 {
-			ok = C.clipboard_write_string(unsafe.Pointer(nil), 0)
+			ok = clipboard_write_string(nil)
 		} else {
-			ok = C.clipboard_write_string(unsafe.Pointer(&buf[0]),
-				C.NSInteger(len(buf)))
+			ok = clipboard_write_string(buf)
 		}
 	case FmtImage:
 		if len(buf) == 0 {
-			ok = C.clipboard_write_image(unsafe.Pointer(nil), 0)
+			ok = clipboard_write_image(nil)
 		} else {
-			ok = C.clipboard_write_image(unsafe.Pointer(&buf[0]),
-				C.NSInteger(len(buf)))
+			ok = clipboard_write_image(buf)
 		}
 	default:
 		return nil, errUnsupported
 	}
-	if ok != 0 {
+	if !ok {
 		return nil, errUnavailable
 	}
 
 	// use unbuffered data to prevent goroutine leak
 	changed := make(chan struct{}, 1)
-	cnt := C.long(C.clipboard_change_count())
+	cnt := clipboard_change_count()
 	go func() {
 		for {
 			// not sure if we are too slow or the user too fast :)
 			time.Sleep(time.Second)
-			cur := C.long(C.clipboard_change_count())
+			cur := clipboard_change_count()
 			if cnt != cur {
 				changed <- struct{}{}
 				close(changed)
@@ -98,7 +139,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	// not sure if we are too slow or the user too fast :)
 	ti := time.NewTicker(time.Second)
-	lastCount := C.long(C.clipboard_change_count())
+	lastCount := clipboard_change_count()
 	go func() {
 		for {
 			select {
@@ -106,7 +147,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				this := C.long(C.clipboard_change_count())
+				this := clipboard_change_count()
 				if lastCount != this {
 					b := Read(t)
 					if b == nil {
@@ -119,4 +160,74 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 		}
 	}()
 	return recv
+}
+
+// nsdataBytes copies the contents of an NSData object into a new byte
+// slice, returning nil if the object is null or empty.
+func nsdataBytes(data objc.ID) []byte {
+	if data == 0 {
+		return nil
+	}
+	size := uint(data.Send(sel_length))
+	if size == 0 {
+		return nil
+	}
+	out := make([]byte, size)
+	data.Send(sel_getBytesLength, unsafe.SliceData(out), size)
+	runtime.KeepAlive(out)
+	return out
+}
+
+func clipboard_read_string() []byte {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	return nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypeString))
+}
+
+func clipboard_read_image() []byte {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	if out := nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypePNG)); out != nil {
+		return out
+	}
+
+	// macOS stores copied images as TIFF by default (e.g. screenshots and
+	// "Copy Image" in many apps). Fall back to TIFF and transcode to PNG so
+	// callers always receive PNG data, consistent with the other platforms.
+	raw := nsdataBytes(pasteboard.Send(sel_dataForType, _NSPasteboardTypeTIFF))
+	if raw == nil {
+		return nil
+	}
+	img, err := tiff.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil
+	}
+	return buf.Bytes()
+}
+
+func clipboard_write_image(buf []byte) bool {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
+	runtime.KeepAlive(buf)
+	pasteboard.Send(sel_clearContents)
+	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypePNG) != 0
+}
+
+func clipboard_write_string(buf []byte) bool {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
+	runtime.KeepAlive(buf)
+	pasteboard.Send(sel_clearContents)
+	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypeString) != 0
+}
+
+func clipboard_change_count() int {
+	defer newAutoreleasePool()()
+	return int(objc.ID(class_NSPasteboard).Send(sel_generalPasteboard).Send(sel_changeCount))
 }
