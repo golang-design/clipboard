@@ -6,7 +6,7 @@
 
 /*
 Package clipboard provides cross platform clipboard access and supports
-macOS/Linux/Windows/Android/iOS platform. Before interacting with the
+macOS/Linux/Windows/BSD/Android/iOS platform. Before interacting with the
 clipboard, one must call Init to assert if it is possible to use this
 package:
 
