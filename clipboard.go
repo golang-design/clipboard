@@ -50,7 +50,21 @@ clipboard data is changed, use the watcher API:
 	ch := clipboard.Watch(context.TODO(), clipboard.FmtText)
 	for data := range ch {
 		// print out clipboard data whenever it is changed
-		println(string(data))
+		println(string(data.Bytes))
+	}
+
+Watch is variadic and each value is tagged with its format, so a single
+call can observe more than one format at once (passing no format watches
+all supported ones):
+
+	ch := clipboard.Watch(context.TODO())
+	for data := range ch {
+		switch data.Format {
+		case clipboard.FmtText:
+			println("text:", string(data.Bytes))
+		case clipboard.FmtImage:
+			println("image bytes:", len(data.Bytes))
+		}
 	}
 
 # Platform-specific caveats
@@ -173,10 +187,45 @@ func Write(t Format, buf []byte) <-chan struct{} {
 	return changed
 }
 
-// Watch returns a receive-only channel that received the clipboard data
-// whenever any change of clipboard data in the desired format happens.
+// Data is a single observed clipboard change: the format the change was
+// detected in, together with the raw bytes encoded the same way Read
+// returns them (UTF-8 for FmtText, PNG for FmtImage).
+type Data struct {
+	Format Format
+	Bytes  []byte
+}
+
+// Watch returns a receive-only channel that receives the clipboard data
+// whenever any change of clipboard data in one of the desired formats
+// happens. Each received value carries the format it was detected in, so a
+// single Watch call can observe multiple formats at once. If no format is
+// given, all supported formats (FmtText and FmtImage) are observed.
 //
-// The returned channel will be closed if the given context is canceled.
-func Watch(ctx context.Context, t Format) <-chan []byte {
-	return watch(ctx, t)
+// The returned channel will be closed once the given context is canceled.
+func Watch(ctx context.Context, t ...Format) <-chan Data {
+	if len(t) == 0 {
+		t = []Format{FmtText, FmtImage}
+	}
+
+	out := make(chan Data)
+	var wg sync.WaitGroup
+	for _, f := range t {
+		in := watch(ctx, f)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for b := range in {
+				select {
+				case out <- Data{Format: f, Bytes: b}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
 }
