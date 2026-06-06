@@ -6,7 +6,7 @@
 
 /*
 Package clipboard provides cross platform clipboard access and supports
-macOS/Linux/Windows/Android/iOS platform. Before interacting with the
+macOS/Linux/Windows/BSD/Android/iOS platform. Before interacting with the
 clipboard, one must call Init to assert if it is possible to use this
 package:
 
@@ -52,6 +52,24 @@ clipboard data is changed, use the watcher API:
 		// print out clipboard data whenever it is changed
 		println(string(data))
 	}
+
+# Platform-specific caveats
+
+On Linux/X11 the clipboard follows the X11 selection-ownership model:
+the process that calls Write owns the selection and serves its content
+to other applications on demand. This means the written data only stays
+available for as long as the writing process is alive, unless a
+clipboard manager is running to take over ownership when the process
+exits. In practice plain text often survives because most clipboard
+managers cache it, whereas larger image data is usually dropped. To keep
+data available after your program exits, keep the process running (the
+channel returned by Write reports when the data is no longer needed) or
+rely on a clipboard manager.
+
+Also on Linux/X11, only the CLIPBOARD selection (the Ctrl+C/Ctrl+V
+clipboard) is accessed; the PRIMARY selection (middle-click paste) is
+not supported. Wayland sessions are not supported natively and require an
+XWayland bridge with DISPLAY set.
 */
 package clipboard // import "golang.design/x/clipboard"
 
@@ -101,8 +119,12 @@ var (
 //		panic(err)
 //	}
 //
-// If Init returns an error, any subsequent Read/Write/Watch call
-// may result in an unrecoverable panic.
+// If Init returns an error because of a runtime dependency failure
+// (such as a missing libx11-dev), any subsequent Read/Write/Watch call
+// may result in an unrecoverable panic. In a CGO-disabled build
+// (CGO_ENABLED=0), Init returns an error and Read/Write/Watch degrade
+// gracefully instead of panicking: Read and Write return nil, and
+// Watch returns a closed channel.
 func Init() error {
 	initOnce.Do(func() {
 		initError = initialize()
@@ -127,9 +149,14 @@ func Read(t Format) []byte {
 }
 
 // Write writes a given buffer to the clipboard in a specified format.
-// Write returned a receive-only channel can receive an empty struct
-// as a signal, which indicates the clipboard has been overwritten from
-// this write.
+//
+// The data is on the clipboard as soon as Write returns; consuming the
+// returned channel is optional. That channel receives a single empty
+// struct, and is then closed, only when the clipboard is later overwritten
+// by another writer (detected via the platform clipboard sequence number).
+// If nothing else ever overwrites the clipboard, the channel never fires —
+// so do not block on it expecting it to report that this write completed.
+//
 // If format t indicates an image, then the given buf assumes
 // the image data is PNG encoded.
 func Write(t Format, buf []byte) <-chan struct{} {

@@ -33,16 +33,34 @@ int (*P_XGetWindowProperty) (Display*, Window, Atom, long, long, Bool, Atom, Ato
 void (*P_XFree) (void*);
 void (*P_XDeleteProperty) (Display*, Window, Atom);
 void (*P_XConvertSelection)(Display*, Atom, Atom, Atom, Window, Time);
+int (*P_XSetErrorHandler)(int (*)(Display*, XErrorEvent*));
+int (*P_XSync)(Display*, int);
+
+// ignoreXError swallows asynchronous X11 protocol errors instead of letting
+// Xlib's default handler terminate the whole process. On a pure Wayland
+// session the X selection can be served against an invalid requestor window,
+// producing a BadWindow error on X_ChangeProperty; without this handler Xlib
+// would print the error and call exit(1), crashing the host program (see #61).
+int ignoreXError(Display* d, XErrorEvent* e) {
+	(void)d;
+	(void)e;
+	return 0; // the return value is ignored by Xlib
+}
 
 int initX11() {
 	if (libX11) {
 		return 1;
 	}
 	libX11 = dlopen("libX11.so", RTLD_LAZY);
-	if (!libX11) {
-		return 0;
-	}
-	P_XOpenDisplay = (Display* (*)(int)) dlsym(libX11, "XOpenDisplay");
+    if (!libX11)
+    {
+        libX11 = dlopen("libX11.so.6", RTLD_LAZY);
+        if (!libX11)
+        {
+            return 0;
+        }
+    }
+    P_XOpenDisplay = (Display* (*)(int)) dlsym(libX11, "XOpenDisplay");
 	P_XCloseDisplay = (void (*)(Display*)) dlsym(libX11, "XCloseDisplay");
 	P_XDefaultRootWindow = (Window (*)(Display*)) dlsym(libX11, "XDefaultRootWindow");
 	P_XCreateSimpleWindow = (Window (*)(Display*, Window, int, int, int, int, int, int, int)) dlsym(libX11, "XCreateSimpleWindow");
@@ -56,7 +74,46 @@ int initX11() {
 	P_XFree = (void (*)(void*)) dlsym(libX11, "XFree");
 	P_XDeleteProperty = (void (*)(Display*, Window, Atom)) dlsym(libX11, "XDeleteProperty");
 	P_XConvertSelection = (void (*)(Display*, Atom, Atom, Atom, Window, Time)) dlsym(libX11, "XConvertSelection");
+	P_XSetErrorHandler = (int (*)(int (*)(Display*, XErrorEvent*))) dlsym(libX11, "XSetErrorHandler");
+	P_XSync = (int (*)(Display*, int)) dlsym(libX11, "XSync");
+
+	// Install a handler so an asynchronous protocol error can never abort the
+	// host process (see #61). This is process-global, as Xlib offers no
+	// per-display protocol error handler.
+	if (P_XSetErrorHandler != NULL) {
+		(*P_XSetErrorHandler)(ignoreXError);
+	}
 	return 1;
+}
+
+// displayUnavailable remembers that opening the X11 display has already
+// failed, so later calls can fail fast instead of retrying the open on
+// every Write/Read/Watch. Without this, once Init fails (e.g. no DISPLAY
+// or no X server) each subsequent call repeats the open attempts and
+// blocks before returning the same error (see #85).
+static int displayUnavailable = 0;
+
+// openDisplay opens the X11 display, retrying a few times to tolerate a
+// transient race during startup. A persistent failure is cached so that
+// subsequent calls return immediately rather than retrying.
+//
+// Note: the fail-fast caching is not covered by a unit test. Its only
+// observable effect is latency, and that only matters when XOpenDisplay
+// itself is slow (e.g. a TCP timeout to an unreachable X server); with no
+// DISPLAY or a missing socket it fails instantly, so there is nothing
+// deterministic to assert without a timing heuristic.
+Display* openDisplay() {
+	if (displayUnavailable) {
+		return NULL;
+	}
+	for (int i = 0; i < 42; i++) {
+		Display* d = (*P_XOpenDisplay)(0);
+		if (d != NULL) {
+			return d;
+		}
+	}
+	displayUnavailable = 1;
+	return NULL;
 }
 
 int clipboard_test() {
@@ -64,19 +121,37 @@ int clipboard_test() {
 		return -1;
 	}
 
-    Display* d = NULL;
-    for (int i = 0; i < 42; i++) {
-        d = (*P_XOpenDisplay)(0);
-        if (d == NULL) {
-            continue;
-        }
-        break;
-    }
-    if (d == NULL) {
-        return -1;
-    }
-    (*P_XCloseDisplay)(d);
-    return 0;
+	Display* d = openDisplay();
+	if (d == NULL) {
+		return -1;
+	}
+	(*P_XCloseDisplay)(d);
+	return 0;
+}
+
+// clipboard_trigger_protocol_error deliberately issues an invalid X request to
+// verify that the error handler installed by initX11 keeps the process alive.
+// It returns 0 if the process survived the resulting protocol error, or a
+// negative value if the X display is unavailable. Without the handler, Xlib's
+// default handler would call exit(1). Exposed only for the #61 regression test.
+int clipboard_trigger_protocol_error() {
+	if (!initX11()) {
+		return -1;
+	}
+	Display* d = openDisplay();
+	if (d == NULL) {
+		return -1;
+	}
+	Atom prop = (*P_XInternAtom)(d, "GOLANG_DESIGN_ERRTEST", 0);
+	unsigned char val = 1;
+	// 0xffffffff is not a valid window, so this yields a BadWindow protocol
+	// error on X_ChangeProperty (the same opcode that crashed in #61).
+	(*P_XChangeProperty)(d, (Window)0xffffffff, prop, XA_ATOM, 8, PropModeReplace, &val, 1);
+	if (P_XSync != NULL) {
+		(*P_XSync)(d, 0); // flush so the error is delivered to our handler
+	}
+	(*P_XCloseDisplay)(d);
+	return 0;
 }
 
 // clipboard_write writes the given buf of size n as type typ.
@@ -84,17 +159,11 @@ int clipboard_test() {
 // if the write is availiable for reading.
 int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
 	if (!initX11()) {
+        syncStatus(handle, -1);
 		return -1;
 	}
 
-    Display* d = NULL;
-    for (int i = 0; i < 42; i++) {
-        d = (*P_XOpenDisplay)(0);
-        if (d == NULL) {
-            continue;
-        }
-        break;
-    }
+    Display* d = openDisplay();
     if (d == NULL) {
         syncStatus(handle, -1);
         return -1;
@@ -171,7 +240,7 @@ int clipboard_write(char *typ, unsigned char *buf, size_t n, uintptr_t handle) {
                 // Reply atoms for supported targets, other clients should
                 // request the clipboard again and obtain the data if their
                 // implementation is correct.
-                Atom targets[] = { atomString, atomImage };
+                Atom targets[] = { targetsAtom, target };
                 R = (*P_XChangeProperty)(ev.display, ev.requestor, ev.property,
                     XA_ATOM, 32, PropModeReplace,
                     (unsigned char *)&targets, sizeof(targets)/sizeof(Atom));
@@ -225,14 +294,7 @@ unsigned long clipboard_read(char* typ, char **buf) {
 		return -1;
 	}
 
-    Display* d = NULL;
-    for (int i = 0; i < 42; i++) {
-        d = (*P_XOpenDisplay)(0);
-        if (d == NULL) {
-            continue;
-        }
-        break;
-    }
+    Display* d = openDisplay();
     if (d == NULL) {
         return -1;
     }

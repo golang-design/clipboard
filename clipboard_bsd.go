@@ -4,12 +4,21 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build linux && !android
+// NOTE: FreeBSD and OpenBSD are verified to build in CI. NetBSD shares
+// the same X11 implementation and is included on a best-effort basis, but
+// it is not covered by CI and has not been fully tested — the X11 header
+// prefix and runtime behavior there are unverified.
+
+//go:build (openbsd || freebsd || netbsd) && !android
 
 package clipboard
 
 /*
-#cgo LDFLAGS: -ldl
+// X11 headers live in different prefixes across the BSDs: OpenBSD ships
+// them in base under /usr/X11R6, FreeBSD installs the libX11 port under
+// /usr/local, and NetBSD uses /usr/X11R7 (base) or /usr/pkg (pkgsrc).
+// List them all; the compiler ignores include paths that do not exist.
+#cgo CFLAGS: -I/usr/X11R6/include -I/usr/local/include -I/usr/X11R7/include -I/usr/pkg/include
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -23,9 +32,9 @@ int clipboard_write(
 	uintptr_t      handle
 );
 unsigned long clipboard_read(char* typ, char **out);
-int clipboard_trigger_protocol_error();
 */
 import "C"
+
 import (
 	"bytes"
 	"context"
@@ -56,14 +65,6 @@ Then this package should be ready to use.
 `
 
 func initialize() error {
-	// Prefer the native Wayland backend when running under a Wayland session
-	// that exposes a data-control manager; this avoids the XWayland bridge and
-	// works without an X server. Fall back to X11 otherwise (including Wayland
-	// sessions whose compositor lacks data-control, via XWayland).
-	if wlAvailable() {
-		useWayland = true
-		return nil
-	}
 	ok := C.clipboard_test()
 	if ok != 0 {
 		return fmt.Errorf(helpmsg, errUnavailable)
@@ -72,9 +73,6 @@ func initialize() error {
 }
 
 func read(t Format) (buf []byte, err error) {
-	if useWayland {
-		return wlRead(t)
-	}
 	switch t {
 	case FmtText:
 		return readc("UTF8_STRING")
@@ -111,9 +109,6 @@ func readc(t string) ([]byte, error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	if useWayland {
-		return wlWrite(t, buf)
-	}
 	var s string
 	switch t {
 	case FmtText:
@@ -155,9 +150,6 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
-	if useWayland {
-		return wlWatch(ctx, t)
-	}
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
 	last := Read(t)
@@ -187,12 +179,4 @@ func syncStatus(h uintptr, val int) {
 	v := cgo.Handle(h).Value().(chan int)
 	v <- val
 	cgo.Handle(h).Delete()
-}
-
-// triggerProtocolError deliberately provokes an X11 protocol error to verify
-// that the handler installed by initX11 keeps the process alive (see #61). It
-// returns 0 if the process survived, or a negative value if X is unavailable.
-// Exposed only for the regression test.
-func triggerProtocolError() int {
-	return int(C.clipboard_trigger_protocol_error())
 }

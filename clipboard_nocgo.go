@@ -9,17 +9,23 @@ func initialize() error {
 }
 
 func read(t Format) (buf []byte, err error) {
-	panic("clipboard: cannot use when CGO_ENABLED=0")
+	return nil, errNoCgo
 }
 
 func readc(t string) ([]byte, error) {
-	panic("clipboard: cannot use when CGO_ENABLED=0")
+	return nil, errNoCgo
 }
 
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	panic("clipboard: cannot use when CGO_ENABLED=0")
+	return nil, errNoCgo
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
-	panic("clipboard: cannot use when CGO_ENABLED=0")
+	// The clipboard is unavailable in a CGO-disabled build. Return a
+	// closed channel so that receivers observe completion immediately
+	// instead of blocking forever, consistent with the documented
+	// behavior when the given context is canceled.
+	ch := make(chan []byte)
+	close(ch)
+	return ch
 }

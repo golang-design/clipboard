@@ -27,7 +27,7 @@ jobs:
       if: ${{ runner.os == 'Linux' }}
       run: |
         sudo apt update
-        sudo apt install -y xvfb libx11-dev x11-utils libegl1-mesa-dev libgles2-mesa-dev
+        sudo apt install -y xvfb libx11-dev x11-utils libegl1-mesa-dev libgles2-mesa-dev xclip
         Xvfb :0 -screen 0 1024x768x24 > /dev/null 2>&1 &
         # Wait for Xvfb
         MAX_ATTEMPTS=120 # About 60 seconds
@@ -69,3 +69,86 @@ jobs:
       if: ${{ runner.os == 'Windows'}}
       run: |
         go test -v -covermode=atomic .
+
+  # The clipboard package previously hung on 32-bit Windows (#45). Make
+  # sure it keeps compiling for GOARCH=386. The runtime behavior cannot be
+  # exercised here because GitHub-hosted runners are amd64 only.
+  windows_386_build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        stable: 'false'
+        go-version: '1.24.x'
+    - name: Build for windows/386
+      env:
+        GOOS: windows
+        GOARCH: 386
+      run: |
+        go build .
+        go build ./cmd/gclip
+
+  # The BSDs are not available as GitHub-hosted runners, so build the X11
+  # cgo path inside a VM to make sure it keeps compiling (see #55). The
+  # clipboard needs a running X server at runtime, which is out of scope
+  # for these build-only jobs.
+  freebsd_build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build on FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        usesh: true
+        prepare: |
+          pkg install -y go libX11
+        run: |
+          go version
+          CGO_ENABLED=1 go build .
+          CGO_ENABLED=1 go build ./cmd/gclip
+
+  openbsd_build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build on OpenBSD
+      uses: vmactions/openbsd-vm@v1
+      with:
+        usesh: true
+        prepare: |
+          pkg_add -I go
+        run: |
+          go version
+          CGO_ENABLED=1 go build .
+          CGO_ENABLED=1 go build ./cmd/gclip
+
+  # Exercise the native Wayland backend against a headless sway compositor.
+  # sway implements a data-control manager (zwlr_data_control_manager_v1),
+  # which the Wayland clipboard backend needs and which weston/cage do not.
+  wayland_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        stable: 'false'
+        go-version: '1.24.x'
+    - name: Install sway and X11 dev headers
+      run: |
+        sudo apt update
+        sudo apt install -y sway libx11-dev wl-clipboard
+    - name: Run the suite under headless sway
+      run: |
+        export XDG_RUNTIME_DIR="${RUNNER_TEMP}/xdg"
+        mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+        export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
+        # Run the whole suite as a sway client so the public API is exercised
+        # through the Wayland dispatch. xwayland is disabled (not needed; it
+        # would only log a missing-binary error). swaymsg's stderr is dropped
+        # because sway exits before acking the request.
+        printf 'xwayland disable\nexec "go test -count=1 -covermode=atomic -v . > /tmp/res.txt 2>&1; echo EXIT=$? >> /tmp/res.txt; swaymsg exit 2>/dev/null"\n' > /tmp/sway.conf
+        timeout 180 sway -c /tmp/sway.conf >/tmp/sway.log 2>&1 || true
+        echo "----- go test output -----"
+        cat /tmp/res.txt
+        grep -q "^EXIT=0$" /tmp/res.txt || { echo "----- sway log -----"; cat /tmp/sway.log; exit 1; }
