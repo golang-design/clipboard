@@ -45,8 +45,14 @@ func read(t Format) (buf []byte, err error) {
 		return x11Read("UTF8_STRING")
 	case FmtImage:
 		return x11Read("image/png")
+	default:
+		mime, ok := formatMIME(t)
+		if !ok {
+			return nil, errUnsupported
+		}
+		// On X11 a MIME type is used directly as the target atom.
+		return x11Read(mime)
 	}
-	return nil, errUnsupported
 }
 
 func write(t Format, buf []byte) (<-chan struct{}, error) {
@@ -55,8 +61,13 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		return x11Write("UTF8_STRING", buf)
 	case FmtImage:
 		return x11Write("image/png", buf)
+	default:
+		mime, ok := formatMIME(t)
+		if !ok {
+			return nil, errUnsupported
+		}
+		return x11Write(mime, buf)
 	}
-	return nil, errUnsupported
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {
