@@ -52,6 +52,24 @@ clipboard data is changed, use the watcher API:
 		// print out clipboard data whenever it is changed
 		println(string(data))
 	}
+
+# Platform-specific caveats
+
+On Linux/X11 the clipboard follows the X11 selection-ownership model:
+the process that calls Write owns the selection and serves its content
+to other applications on demand. This means the written data only stays
+available for as long as the writing process is alive, unless a
+clipboard manager is running to take over ownership when the process
+exits. In practice plain text often survives because most clipboard
+managers cache it, whereas larger image data is usually dropped. To keep
+data available after your program exits, keep the process running (the
+channel returned by Write reports when the data is no longer needed) or
+rely on a clipboard manager.
+
+Also on Linux/X11, only the CLIPBOARD selection (the Ctrl+C/Ctrl+V
+clipboard) is accessed; the PRIMARY selection (middle-click paste) is
+not supported. Wayland sessions are not supported natively and require an
+XWayland bridge with DISPLAY set.
 */
 package clipboard // import "golang.design/x/clipboard"
 

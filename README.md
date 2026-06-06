@@ -134,6 +134,23 @@ accessing system clipboards, but here are a few details you might need to know.
 - Windows: no Cgo, no dependency
 - iOS/Android: collaborate with [`gomobile`](https://golang.org/x/mobile)
 
+### Caveats
+
+- **Linux/X11 clipboard ownership.** On X11 the process that writes to
+  the clipboard *owns* the selection and serves its content to other
+  applications on demand. Once the writing process exits, the data is
+  gone — unless a clipboard manager is running to take over ownership.
+  In practice plain text is often retained because most clipboard
+  managers cache it, while larger image data is usually dropped. To keep
+  written data available after your program exits, keep the process
+  running (the channel returned by `Write` reports when the data is no
+  longer needed) or rely on a clipboard manager.
+- **Linux/X11 selection.** Only the `CLIPBOARD` selection (Ctrl+C/Ctrl+V)
+  is accessed; the `PRIMARY` selection (middle-click paste) is not
+  supported.
+- **Image format.** Image read/write assumes PNG-encoded data; other
+  encodings are undefined behavior.
+
 ### Screenshot
 
 In general, when you need test your implementation regarding images,
