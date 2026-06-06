@@ -22,6 +22,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // wlDisplayID is the well-known object id of the wl_display singleton; every
@@ -217,4 +218,227 @@ func dataControlManager(globals map[string]wlGlobal) (string, wlGlobal, bool) {
 		}
 	}
 	return "", wlGlobal{}, false
+}
+
+// Data-control protocol opcodes. ext_data_control_* and zwlr_data_control_*
+// are structurally identical (ext was modeled on the wlroots protocol), so the
+// same opcodes apply to whichever manager the compositor advertises.
+const (
+	// wl_registry
+	regOpcodeBind = 0
+	// wl_display
+	dispOpcodeSync        = 0
+	dispOpcodeGetRegistry = 1
+	// manager
+	mgrOpcodeGetDataDevice = 1
+	// device events
+	devEvtDataOffer = 0
+	devEvtSelection = 1
+	// offer
+	offerOpcodeReceive = 0
+	offerEvtOffer      = 0
+)
+
+// MIME types we map each Format to, in order of preference when reading.
+var (
+	textMIMEs  = []string{"text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "STRING", "TEXT"}
+	imageMIMEs = []string{"image/png"}
+)
+
+// wlEncodeString encodes a Wayland string argument: a 32-bit length including
+// the trailing NUL, the bytes, the NUL, and padding to a 32-bit boundary.
+func wlEncodeString(s string) []byte {
+	n := len(s) + 1
+	padded := (n + 3) &^ 3
+	out := make([]byte, 4+padded)
+	binary.LittleEndian.PutUint32(out, uint32(n))
+	copy(out[4:], s)
+	return out
+}
+
+// bind issues wl_registry.bind for a global and returns the new object id.
+func (w *wlConn) bind(registryID, name uint32, iface string, version uint32) (uint32, error) {
+	id := w.newID()
+	var num [4]byte
+	p := make([]byte, 0, 12+len(iface))
+	binary.LittleEndian.PutUint32(num[:], name)
+	p = append(p, num[:]...)
+	p = append(p, wlEncodeString(iface)...)
+	binary.LittleEndian.PutUint32(num[:], version)
+	p = append(p, num[:]...)
+	binary.LittleEndian.PutUint32(num[:], id)
+	p = append(p, num[:]...)
+	return id, w.request(registryID, regOpcodeBind, p)
+}
+
+// sync issues wl_display.sync and returns the callback id; the callback's done
+// event marks that the server has processed all prior requests.
+func (w *wlConn) sync() (uint32, error) {
+	id := w.newID()
+	var b [4]byte
+	binary.LittleEndian.PutUint32(b[:], id)
+	return id, w.request(wlDisplayID, dispOpcodeSync, b[:])
+}
+
+// requestFd sends a request whose trailing fd argument is passed as ancillary
+// data (SCM_RIGHTS); fd arguments occupy no space in the message body.
+func (w *wlConn) requestFd(objID uint32, opcode uint16, payload []byte, fd int) error {
+	size := 8 + len(payload)
+	msg := make([]byte, size)
+	binary.LittleEndian.PutUint32(msg[0:], objID)
+	binary.LittleEndian.PutUint32(msg[4:], uint32(size)<<16|uint32(opcode))
+	copy(msg[8:], payload)
+	_, _, err := w.c.WriteMsgUnix(msg, syscall.UnixRights(fd), nil)
+	return err
+}
+
+// wlRead reads the current clipboard selection for the given format.
+func wlRead(t Format) ([]byte, error) {
+	switch t {
+	case FmtText:
+		return wlReadSelection(textMIMEs)
+	case FmtImage:
+		return wlReadSelection(imageMIMEs)
+	}
+	return nil, errUnsupported
+}
+
+// wlReadSelection connects to the compositor and reads the regular clipboard
+// selection, returning the bytes for the first of mimes the current offer
+// provides. It returns (nil, nil) if the clipboard is empty or holds none of
+// the requested types.
+func wlReadSelection(mimes []string) ([]byte, error) {
+	w, err := wlConnect()
+	if err != nil {
+		return nil, err
+	}
+	defer w.Close()
+
+	registryID := w.newID()
+	var arg [4]byte
+	binary.LittleEndian.PutUint32(arg[:], registryID)
+	if err := w.request(wlDisplayID, dispOpcodeGetRegistry, arg[:]); err != nil {
+		return nil, err
+	}
+	sync1, err := w.sync()
+	if err != nil {
+		return nil, err
+	}
+
+	globals := make(map[string]wlGlobal)
+	for {
+		obj, op, body, err := w.readEvent()
+		if err != nil {
+			return nil, err
+		}
+		if obj == wlDisplayID && op == 0 {
+			return nil, wlDisplayError(body)
+		}
+		if obj == registryID && op == 0 && len(body) >= 4 {
+			name := binary.LittleEndian.Uint32(body[0:])
+			iface, off, err := wlString(body, 4)
+			if err == nil && off+4 <= len(body) {
+				globals[iface] = wlGlobal{name: name, version: binary.LittleEndian.Uint32(body[off:])}
+			}
+		}
+		if obj == sync1 && op == 0 {
+			break
+		}
+	}
+
+	mgrIface, mgr, ok := dataControlManager(globals)
+	if !ok {
+		return nil, errUnavailable
+	}
+	seat, ok := globals["wl_seat"]
+	if !ok {
+		return nil, errUnavailable
+	}
+	managerID, err := w.bind(registryID, mgr.name, mgrIface, 1)
+	if err != nil {
+		return nil, err
+	}
+	seatID, err := w.bind(registryID, seat.name, "wl_seat", 1)
+	if err != nil {
+		return nil, err
+	}
+
+	// manager.get_data_device(new_id device, seat)
+	deviceID := w.newID()
+	dd := make([]byte, 8)
+	binary.LittleEndian.PutUint32(dd[0:], deviceID)
+	binary.LittleEndian.PutUint32(dd[4:], seatID)
+	if err := w.request(managerID, mgrOpcodeGetDataDevice, dd); err != nil {
+		return nil, err
+	}
+	sync2, err := w.sync()
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect the offers the device announces and the current selection.
+	offers := make(map[uint32][]string)
+	var selection uint32
+	for {
+		obj, op, body, err := w.readEvent()
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case obj == wlDisplayID && op == 0:
+			return nil, wlDisplayError(body)
+		case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
+			offers[binary.LittleEndian.Uint32(body[0:])] = nil
+		case obj == deviceID && op == devEvtSelection && len(body) >= 4:
+			selection = binary.LittleEndian.Uint32(body[0:])
+		case op == offerEvtOffer:
+			if _, isOffer := offers[obj]; isOffer {
+				if mime, _, err := wlString(body, 0); err == nil {
+					offers[obj] = append(offers[obj], mime)
+				}
+			}
+		}
+		if obj == sync2 && op == 0 {
+			break
+		}
+	}
+	if selection == 0 {
+		return nil, nil // empty clipboard
+	}
+
+	chosen := pickMIME(mimes, offers[selection])
+	if chosen == "" {
+		return nil, nil // none of the requested formats are available
+	}
+
+	// offer.receive(mime, fd): hand the compositor the write end of a pipe.
+	r, wp, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := w.requestFd(selection, offerOpcodeReceive, wlEncodeString(chosen), int(wp.Fd())); err != nil {
+		r.Close()
+		wp.Close()
+		return nil, err
+	}
+	wp.Close() // close our copy so the reader observes EOF once the source is done
+
+	data, err := io.ReadAll(r)
+	r.Close()
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// pickMIME returns the first of want that appears in have, or "".
+func pickMIME(want, have []string) string {
+	for _, m := range want {
+		for _, a := range have {
+			if a == m {
+				return m
+			}
+		}
+	}
+	return ""
 }
