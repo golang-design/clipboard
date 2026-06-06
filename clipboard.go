@@ -149,9 +149,14 @@ func Read(t Format) []byte {
 }
 
 // Write writes a given buffer to the clipboard in a specified format.
-// Write returned a receive-only channel can receive an empty struct
-// as a signal, which indicates the clipboard has been overwritten from
-// this write.
+//
+// The data is on the clipboard as soon as Write returns; consuming the
+// returned channel is optional. That channel receives a single empty
+// struct, and is then closed, only when the clipboard is later overwritten
+// by another writer (detected via the platform clipboard sequence number).
+// If nothing else ever overwrites the clipboard, the channel never fires —
+// so do not block on it expecting it to report that this write completed.
+//
 // If format t indicates an image, then the given buf assumes
 // the image data is PNG encoded.
 func Write(t Format, buf []byte) <-chan struct{} {
