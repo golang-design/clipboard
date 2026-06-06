@@ -53,7 +53,7 @@ func TestClipboardInit(t *testing.T) {
 }
 
 func TestClipboard(t *testing.T) {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -138,7 +138,7 @@ func TestClipboard(t *testing.T) {
 }
 
 func TestClipboardMultipleWrites(t *testing.T) {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -185,7 +185,7 @@ func TestClipboardMultipleWrites(t *testing.T) {
 }
 
 func TestClipboardConcurrentRead(t *testing.T) {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -211,7 +211,7 @@ func TestClipboardConcurrentRead(t *testing.T) {
 }
 
 func TestClipboardWriteEmpty(t *testing.T) {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
@@ -230,7 +230,7 @@ func TestClipboardWriteEmpty(t *testing.T) {
 }
 
 func TestClipboardWatch(t *testing.T) {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
