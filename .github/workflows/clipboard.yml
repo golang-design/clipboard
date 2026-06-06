@@ -89,10 +89,10 @@ jobs:
         go build .
         go build ./cmd/gclip
 
-  # The BSDs are not available as GitHub-hosted runners, so build the X11
-  # cgo path inside a VM to make sure it keeps compiling (see #55). The
-  # clipboard needs a running X server at runtime, which is out of scope
-  # for these build-only jobs.
+  # The BSDs are not available as GitHub-hosted runners, so build the pure-Go
+  # X11 backend inside a VM to make sure it keeps compiling (see #55). It needs
+  # no Cgo and no libX11; the clipboard needs a running X server at runtime,
+  # which is out of scope for these build-only jobs.
   freebsd_build:
     runs-on: ubuntu-latest
     steps:
@@ -102,11 +102,11 @@ jobs:
       with:
         usesh: true
         prepare: |
-          pkg install -y go libX11
+          pkg install -y go
         run: |
           go version
-          CGO_ENABLED=1 go build .
-          CGO_ENABLED=1 go build ./cmd/gclip
+          CGO_ENABLED=0 go build .
+          CGO_ENABLED=0 go build ./cmd/gclip
 
   openbsd_build:
     runs-on: ubuntu-latest
@@ -120,8 +120,8 @@ jobs:
           pkg_add -I go
         run: |
           go version
-          CGO_ENABLED=1 go build .
-          CGO_ENABLED=1 go build ./cmd/gclip
+          CGO_ENABLED=0 go build .
+          CGO_ENABLED=0 go build ./cmd/gclip
 
   # Exercise the native Wayland backend against a headless sway compositor.
   # sway implements a data-control manager (zwlr_data_control_manager_v1),
