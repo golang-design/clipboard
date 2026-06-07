@@ -136,7 +136,11 @@ func readImage() ([]byte, error) {
 	sh.Data = uintptr(p)
 	sh.Cap = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
 	sh.Len = int(info.Size + 4*uint32(info.Width)*uint32(info.Height))
-	img := image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
+	// The DIBV5 stores straight (non-premultiplied) BGRA (see imageToDIB), so
+	// decode into NRGBA, whose channels are also straight. Using color.RGBA
+	// here would treat the bytes as premultiplied and round-trip transparent
+	// images incorrectly (#105).
+	img := image.NewNRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
 	offset := int(info.Size)
 	stride := int(info.Width)
 	for y := 0; y < int(info.Height); y++ {
@@ -148,7 +152,7 @@ func readImage() ([]byte, error) {
 			g := data[idx+1]
 			b := data[idx+0]
 			a := data[idx+3]
-			img.SetRGBA(xhat, yhat, color.RGBA{r, g, b, a})
+			img.SetNRGBA(xhat, yhat, color.NRGBA{R: r, G: g, B: b, A: a})
 		}
 	}
 	// always use PNG encoding.
