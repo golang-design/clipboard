@@ -79,6 +79,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	ti := time.NewTicker(time.Second)
 	last := Read(t)
 	go func() {
+		defer ti.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -90,8 +91,13 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 					continue
 				}
 				if !bytes.Equal(last, b) {
-					recv <- b
-					last = b
+					select {
+					case recv <- b:
+						last = b
+					case <-ctx.Done():
+						close(recv)
+						return
+					}
 				}
 			}
 		}
