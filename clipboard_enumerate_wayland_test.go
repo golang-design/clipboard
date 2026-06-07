@@ -37,7 +37,10 @@ func TestWaylandFormatsEnumerate(t *testing.T) {
 	time.Sleep(200 * time.Millisecond) // let wl-copy acquire selection ownership
 
 	want := Register(mime)
-	fs := enumerateFormats()
+	// Call the Wayland enumeration directly (like the other wl* tests): the
+	// public enumerateFormats() routes on useWayland, which is only set by
+	// Init() and unset in this unit test.
+	fs := wlEnumerateFormats()
 	found := false
 	for _, f := range fs {
 		if f == want {
