@@ -8,6 +8,10 @@ func initialize() error {
 	return errNoCgo
 }
 
+// enumerateFormats reports the formats on the clipboard. In a CGO-disabled
+// build the clipboard is unavailable, so Formats() returns empty.
+func enumerateFormats() []Format { return nil }
+
 // read returns errNoCgo for every format, including custom ones registered via
 // Register: in a CGO-disabled build the clipboard is unavailable, so the public
 // API degrades gracefully (Read returns nil, Write returns nil) rather than

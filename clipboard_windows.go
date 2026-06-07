@@ -316,6 +316,10 @@ func writeCustom(format uintptr, buf []byte) error {
 	return nil
 }
 
+// enumerateFormats reports the formats currently on the clipboard. Implemented
+// in a follow-up PR; for now it returns nil so Formats() degrades to empty.
+func enumerateFormats() []Format { return nil }
+
 func read(t Format) (buf []byte, err error) {
 	// On Windows, OpenClipboard and CloseClipboard must be executed on
 	// the same thread. Thus, lock the OS thread for further execution.

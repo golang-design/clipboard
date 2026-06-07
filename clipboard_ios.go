@@ -26,6 +26,10 @@ import (
 
 func initialize() error { return nil }
 
+// enumerateFormats reports the formats on the clipboard. The iOS bridge exposes
+// only text and no enumeration API, so Formats() returns empty.
+func enumerateFormats() []Format { return nil }
+
 func read(t Format) (buf []byte, err error) {
 	switch t {
 	case FmtText:

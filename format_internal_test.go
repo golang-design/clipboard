@@ -90,3 +90,40 @@ func TestReadAsNoData(t *testing.T) {
 		t.Fatalf("decode was called despite no data being available")
 	}
 }
+
+func TestFormatMIME(t *testing.T) {
+	if got := FmtText.MIME(); got != "text/plain;charset=utf-8" {
+		t.Fatalf("FmtText.MIME() = %q", got)
+	}
+	if got := FmtImage.MIME(); got != "image/png" {
+		t.Fatalf("FmtImage.MIME() = %q", got)
+	}
+	if got := Register("application/x.mime-test").MIME(); got != "application/x.mime-test" {
+		t.Fatalf("custom MIME() = %q, want application/x.mime-test", got)
+	}
+	if got := Format(1 << 20).MIME(); got != "" {
+		t.Fatalf("unregistered MIME() = %q, want empty", got)
+	}
+}
+
+func TestNormalizeFormats(t *testing.T) {
+	a := Register("application/x.normalize-a")
+	b := Register("application/x.normalize-b") // registered after a, so a < b
+
+	// Out of order, with duplicates and both built-ins.
+	got := normalizeFormats([]Format{b, FmtImage, a, FmtText, a, FmtImage, b})
+	want := []Format{FmtText, FmtImage, a, b}
+	if len(got) != len(want) {
+		t.Fatalf("normalizeFormats len = %d (%v), want %d (%v)", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("normalizeFormats = %v, want %v", got, want)
+		}
+	}
+
+	// Empty input yields no formats.
+	if got := normalizeFormats(nil); len(got) != 0 {
+		t.Fatalf("normalizeFormats(nil) = %v, want empty", got)
+	}
+}
