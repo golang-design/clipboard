@@ -18,6 +18,13 @@ realistic content across common MIME types.
 The generated files contain only placeholder content authored for this
 repository, so they carry no third-party license.
 
+## image24bit.bmp
+
+A minimal 8×8 **24-bit** (BI_RGB) BMP with a known pixel pattern
+(`R=x*32, G=y*32, B=128`), generated locally with a small stdlib-only program.
+Used by the Windows test to put a 24-bit DIB on the clipboard (as `CF_DIB`) and
+verify `Read(FmtImage)` decodes it.
+
 ## *.png
 
 `clipboard.png` and the per-platform screenshots are PNG fixtures for the image
