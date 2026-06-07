@@ -393,18 +393,25 @@ func clipboardFormatName(format uintptr) string {
 // tests can shorten it.
 var clipboardOpenTimeout = 5 * time.Second
 
+// openClipboardOnce attempts to open the clipboard once, returning whether it
+// succeeded. It is a var so tests can simulate contention (a real second holder
+// can only be another process). Pass a NULL (0) window handle explicitly:
+// omitting it leaves a garbage value on the stack under the 386 stdcall ABI and
+// the call spins (see #45).
+var openClipboardOnce = func() bool {
+	r, _, _ := openClipboard.Call(0)
+	return r != 0
+}
+
 // openClipboardRetry opens the clipboard, retrying with a short backoff because
 // another application may briefly hold it open. It returns errUnavailable once
 // clipboardOpenTimeout elapses instead of busy-waiting forever at 100% CPU
-// (#144). Pass a NULL (0) window handle explicitly: omitting it leaves a garbage
-// value on the stack under the 386 stdcall ABI and the call spins (see #45).
-//
-// Call it on an OS-locked thread — OpenClipboard and CloseClipboard must run on
-// the same thread — and CloseClipboard on success.
+// (#144). Call it on an OS-locked thread — OpenClipboard and CloseClipboard must
+// run on the same thread — and CloseClipboard on success.
 func openClipboardRetry() error {
 	deadline := time.Now().Add(clipboardOpenTimeout)
 	for {
-		if r, _, _ := openClipboard.Call(0); r != 0 {
+		if openClipboardOnce() {
 			return nil
 		}
 		if time.Now().After(deadline) {

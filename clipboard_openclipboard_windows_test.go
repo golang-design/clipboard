@@ -9,56 +9,37 @@
 package clipboard
 
 import (
-	"runtime"
 	"testing"
 	"time"
 )
 
-// TestOpenClipboardRetryTimeout verifies openClipboardRetry returns an error
-// when the clipboard is held open by someone else, instead of busy-waiting
-// forever (#144). It holds the clipboard open on a separate OS-locked goroutine,
-// then asserts openClipboardRetry gives up within the (shortened) timeout rather
-// than hanging.
+// TestOpenClipboardRetryTimeout verifies openClipboardRetry gives up with an
+// error after the timeout, retrying with backoff in between, instead of
+// busy-waiting forever when the clipboard never opens (#144). Contention is
+// simulated via the openClipboardOnce seam, since a real second holder can only
+// be another process.
 func TestOpenClipboardRetryTimeout(t *testing.T) {
-	held := make(chan struct{})
-	release := make(chan struct{})
-	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		for {
-			if r, _, _ := openClipboard.Call(0); r != 0 {
-				break
-			}
-			time.Sleep(time.Millisecond)
-		}
-		close(held)
-		<-release
-		closeClipboard.Call()
-	}()
-	<-held
-	defer close(release)
+	oldOpen, oldTimeout := openClipboardOnce, clipboardOpenTimeout
+	defer func() { openClipboardOnce, clipboardOpenTimeout = oldOpen, oldTimeout }()
 
-	old := clipboardOpenTimeout
-	clipboardOpenTimeout = 300 * time.Millisecond
-	defer func() { clipboardOpenTimeout = old }()
+	calls := 0
+	openClipboardOnce = func() bool { calls++; return false } // never opens
+	clipboardOpenTimeout = 200 * time.Millisecond
 
-	done := make(chan error, 1)
-	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		err := openClipboardRetry()
-		if err == nil {
-			closeClipboard.Call() // unexpectedly opened; don't leak it
-		}
-		done <- err
-	}()
+	start := time.Now()
+	err := openClipboardRetry()
+	elapsed := time.Since(start)
 
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("openClipboardRetry succeeded while the clipboard was held; expected a timeout error")
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("openClipboardRetry did not return while the clipboard was held (#144 busy-wait)")
+	if err == nil {
+		t.Fatal("openClipboardRetry returned nil when the clipboard never opens; expected a timeout error")
+	}
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("returned after %v; should keep retrying until ~the %v timeout", elapsed, clipboardOpenTimeout)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("took %v; the timeout is not bounding the loop", elapsed)
+	}
+	if calls < 2 {
+		t.Fatalf("openClipboardOnce called %d times; expected multiple backoff retries", calls)
 	}
 }
