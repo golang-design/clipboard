@@ -333,12 +333,8 @@ func writeCustom(format uintptr, buf []byte) error {
 func enumerateFormats() []Format {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	for {
-		r, _, _ := openClipboard.Call(0)
-		if r == 0 {
-			continue
-		}
-		break
+	if openClipboardRetry() != nil {
+		return nil
 	}
 	defer closeClipboard.Call()
 
@@ -393,6 +389,31 @@ func clipboardFormatName(format uintptr) string {
 	return string(buf[:n])
 }
 
+// clipboardOpenTimeout bounds openClipboardRetry. It is a var (not a const) so
+// tests can shorten it.
+var clipboardOpenTimeout = 5 * time.Second
+
+// openClipboardRetry opens the clipboard, retrying with a short backoff because
+// another application may briefly hold it open. It returns errUnavailable once
+// clipboardOpenTimeout elapses instead of busy-waiting forever at 100% CPU
+// (#144). Pass a NULL (0) window handle explicitly: omitting it leaves a garbage
+// value on the stack under the 386 stdcall ABI and the call spins (see #45).
+//
+// Call it on an OS-locked thread — OpenClipboard and CloseClipboard must run on
+// the same thread — and CloseClipboard on success.
+func openClipboardRetry() error {
+	deadline := time.Now().Add(clipboardOpenTimeout)
+	for {
+		if r, _, _ := openClipboard.Call(0); r != 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errUnavailable
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func read(t Format) (buf []byte, err error) {
 	// On Windows, OpenClipboard and CloseClipboard must be executed on
 	// the same thread. Thus, lock the OS thread for further execution.
@@ -422,18 +443,8 @@ func read(t Format) (buf []byte, err error) {
 		return nil, errUnavailable
 	}
 
-	// try again until open clipboard successed
-	//
-	// Pass a NULL (0) window handle explicitly: OpenClipboard expects an
-	// HWND argument, and omitting it leaves a garbage value on the stack
-	// under the 386 stdcall ABI, which makes the call spin here forever
-	// (see #45). The write path below already passes 0.
-	for {
-		r, _, _ = openClipboard.Call(0)
-		if r == 0 {
-			continue
-		}
-		break
+	if err := openClipboardRetry(); err != nil {
+		return nil, err
 	}
 	defer closeClipboard.Call()
 
@@ -457,12 +468,9 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 		// OpenClipboard on the same thread.
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		for {
-			r, _, _ := openClipboard.Call(0)
-			if r == 0 {
-				continue
-			}
-			break
+		if err := openClipboardRetry(); err != nil {
+			errch <- err
+			return
 		}
 
 		// var param uintptr
