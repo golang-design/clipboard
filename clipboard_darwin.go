@@ -13,6 +13,7 @@ import (
 	"context"
 	"image/png"
 	"runtime"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -45,6 +46,10 @@ var (
 	sel_dataWithBytesLength  = objc.RegisterName("dataWithBytes:length:")
 	sel_stringWithUTF8String = objc.RegisterName("stringWithUTF8String:")
 	sel_changeCount          = objc.RegisterName("changeCount")
+	sel_types                = objc.RegisterName("types")
+	sel_count                = objc.RegisterName("count")
+	sel_objectAtIndex        = objc.RegisterName("objectAtIndex:")
+	sel_UTF8String           = objc.RegisterName("UTF8String")
 )
 
 func must(sym uintptr, err error) uintptr {
@@ -85,9 +90,69 @@ func newAutoreleasePool() (drain func()) {
 	}
 }
 
-// enumerateFormats reports the formats currently on the clipboard. Implemented
-// in a follow-up PR; for now it returns nil so Formats() degrades to empty.
-func enumerateFormats() []Format { return nil }
+// enumerateFormats reports the formats currently on the clipboard by reading the
+// general pasteboard's advertised types and mapping each to a Format.
+func enumerateFormats() []Format {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	types := pasteboard.Send(sel_types)
+	if types == 0 {
+		return nil
+	}
+	n := int(objc.ID(types).Send(sel_count))
+	out := make([]Format, 0, n)
+	for i := 0; i < n; i++ {
+		t := objc.ID(types).Send(sel_objectAtIndex, uintptr(i))
+		if f, ok := darwinFormatFor(nsStringGo(objc.ID(t))); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// darwinFormatFor maps a pasteboard type (a UTI, or for this package's custom
+// formats the MIME string used verbatim) to a Format: the built-in text/image
+// UTIs to FmtText/FmtImage, a few common UTIs to their MIME via a best-effort
+// alias, and any MIME-shaped type to a custom format registered on demand.
+func darwinFormatFor(t string) (Format, bool) {
+	switch t {
+	case "public.utf8-plain-text", "public.plain-text", "NSStringPboardType":
+		return FmtText, true
+	case "public.png", "public.tiff":
+		return FmtImage, true
+	case "public.html":
+		return Register("text/html"), true
+	case "com.adobe.pdf":
+		return Register("application/pdf"), true
+	case "public.rtf":
+		return Register("text/rtf"), true
+	}
+	if strings.Contains(t, "/") {
+		return Register(t), true
+	}
+	return 0, false
+}
+
+// nsStringGo converts an NSString to a Go string via its UTF8String pointer.
+func nsStringGo(s objc.ID) string {
+	if s == 0 {
+		return ""
+	}
+	p := uintptr(s.Send(sel_UTF8String))
+	if p == 0 {
+		return ""
+	}
+	var b []byte
+	for {
+		c := *(*byte)(unsafe.Pointer(p))
+		if c == 0 {
+			break
+		}
+		b = append(b, c)
+		p++
+	}
+	return string(b)
+}
 
 func read(t Format) (buf []byte, err error) {
 	switch t {
