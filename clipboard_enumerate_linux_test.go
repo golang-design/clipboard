@@ -13,11 +13,13 @@ import (
 	"testing"
 )
 
+// TestFormatsEnumerate exercises same-process enumeration on the X11 backend.
+// The Wayland data-control backend is covered cross-process by
+// clipboard_enumerate_wayland_test.go: a process does not observe its own
+// just-set custom selection there (same caveat as the custom-format tests).
 func TestFormatsEnumerate(t *testing.T) {
-	// This PR implements enumeration on the X11 backend. Wayland enumeration
-	// lands in a follow-up PR; skip there for now.
 	if os.Getenv("WAYLAND_DISPLAY") != "" {
-		t.Skip("Wayland enumeration lands in a separate PR")
+		t.Skip("Wayland enumeration is covered cross-process")
 	}
 	enumerateRoundTrip(t)
 }

@@ -427,6 +427,83 @@ func wlReadSelection(mimes []string) ([]byte, error) {
 	return data, nil
 }
 
+// wlSelectionMIMEs returns the MIME types advertised by the current clipboard
+// selection, or nil if the clipboard is empty. It mirrors wlReadSelection's
+// offer-collection but returns the type list instead of receiving data.
+func wlSelectionMIMEs() ([]string, error) {
+	w, _, deviceID, err := wlConnectDevice()
+	if err != nil {
+		return nil, err
+	}
+	defer w.Close()
+
+	sync2, err := w.sync()
+	if err != nil {
+		return nil, err
+	}
+
+	offers := make(map[uint32][]string)
+	var selection uint32
+	for {
+		obj, op, body, err := w.readEvent()
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case obj == wlDisplayID && op == 0:
+			return nil, wlDisplayError(body)
+		case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
+			offers[binary.LittleEndian.Uint32(body[0:])] = nil
+		case obj == deviceID && op == devEvtSelection && len(body) >= 4:
+			selection = binary.LittleEndian.Uint32(body[0:])
+		case op == offerEvtOffer:
+			if _, isOffer := offers[obj]; isOffer {
+				if mime, _, err := wlString(body, 0); err == nil {
+					offers[obj] = append(offers[obj], mime)
+				}
+			}
+		}
+		if obj == sync2 && op == 0 {
+			break
+		}
+	}
+	if selection == 0 {
+		return nil, nil
+	}
+	return offers[selection], nil
+}
+
+// wlEnumerateFormats maps the MIME types of the current selection to Format
+// tokens, registering custom types on demand.
+func wlEnumerateFormats() []Format {
+	mimes, err := wlSelectionMIMEs()
+	if err != nil {
+		return nil
+	}
+	out := make([]Format, 0, len(mimes))
+	for _, m := range mimes {
+		out = append(out, wlFormatForMIME(m))
+	}
+	return out
+}
+
+// wlFormatForMIME maps a Wayland MIME type to a Format: any of the known text
+// types to FmtText, image/png to FmtImage, and anything else to a custom format
+// registered on demand.
+func wlFormatForMIME(m string) Format {
+	for _, tm := range textMIMEs {
+		if m == tm {
+			return FmtText
+		}
+	}
+	for _, im := range imageMIMEs {
+		if m == im {
+			return FmtImage
+		}
+	}
+	return Register(m)
+}
+
 // wlReceiveOffer requests data for mime from the given offer and reads it from
 // a pipe whose write end is handed to the compositor (SCM_RIGHTS).
 func wlReceiveOffer(w *wlConn, offerID uint32, mime string) ([]byte, error) {
