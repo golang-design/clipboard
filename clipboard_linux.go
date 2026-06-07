@@ -52,6 +52,11 @@ func initialize() error {
 	return nil
 }
 
+// enumerateFormats reports the formats currently on the clipboard. Implemented
+// in follow-up PRs (X11 and Wayland); for now it returns nil so Formats()
+// degrades to empty.
+func enumerateFormats() []Format { return nil }
+
 func read(t Format) (buf []byte, err error) {
 	if useWayland {
 		return wlRead(t)

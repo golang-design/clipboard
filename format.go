@@ -8,6 +8,7 @@ package clipboard
 
 import (
 	"errors"
+	"slices"
 	"sync"
 )
 
@@ -63,6 +64,63 @@ func formatMIME(f Format) (string, bool) {
 	defer registryMu.RUnlock()
 	mime, ok := formatToMIME[f]
 	return mime, ok
+}
+
+// MIME returns the MIME type that the Format f denotes. For the built-in
+// formats it returns a canonical type ("text/plain;charset=utf-8" for FmtText,
+// "image/png" for FmtImage); for a custom format it returns the string passed
+// to Register; for a token that was never registered it returns "".
+func (f Format) MIME() string {
+	switch f {
+	case FmtText:
+		return "text/plain;charset=utf-8"
+	case FmtImage:
+		return "image/png"
+	}
+	if mime, ok := formatMIME(f); ok {
+		return mime
+	}
+	return ""
+}
+
+// Formats reports the formats currently available on the clipboard, in a stable
+// order: FmtText then FmtImage (when present), followed by custom formats in
+// registration order. Custom MIME types discovered on the clipboard are
+// registered on demand, so every returned token can be passed straight to Read
+// (and its identity inspected with Format.MIME).
+//
+// It returns an empty slice when the clipboard is empty or unavailable — for
+// example on iOS/Android or in a CGO-disabled build, where it degrades like the
+// rest of the API rather than panicking.
+func Formats() []Format {
+	lock.Lock()
+	defer lock.Unlock()
+	return normalizeFormats(enumerateFormats())
+}
+
+// normalizeFormats de-duplicates tokens and returns them in a stable order:
+// the built-ins first (FmtText, then FmtImage), then custom tokens in ascending
+// token value, which is their registration order.
+func normalizeFormats(in []Format) []Format {
+	seen := make(map[Format]bool, len(in))
+	for _, f := range in {
+		seen[f] = true
+	}
+
+	var out []Format
+	for _, b := range []Format{FmtText, FmtImage} {
+		if seen[b] {
+			out = append(out, b)
+			delete(seen, b)
+		}
+	}
+
+	custom := make([]Format, 0, len(seen))
+	for f := range seen {
+		custom = append(custom, f)
+	}
+	slices.Sort(custom)
+	return append(out, custom...)
 }
 
 // ReadAs reads the clipboard contents for the format f and decodes them into a
