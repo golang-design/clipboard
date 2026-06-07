@@ -75,6 +75,11 @@ supported on the desktop backends (macOS, Windows, Linux/X11, BSD/X11, and
 Linux/Wayland for cross-application exchange); on iOS, Android, and
 CGO-disabled builds they degrade gracefully like the rest of the API.
 
+To discover what is currently on the clipboard, Formats reports the available
+formats (registering any custom MIME types it finds on demand), and
+Format.MIME reports a token's MIME identity. Enumeration works on the desktop
+backends and returns an empty slice on iOS, Android, and CGO-disabled builds.
+
 # Platform-specific caveats
 
 On Linux/X11 the clipboard follows the X11 selection-ownership model:
