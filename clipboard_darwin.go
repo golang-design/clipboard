@@ -221,6 +221,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	ti := time.NewTicker(time.Second)
 	lastCount := clipboard_change_count()
 	go func() {
+		defer ti.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -233,8 +234,13 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 					if b == nil {
 						continue
 					}
-					recv <- b
-					lastCount = this
+					select {
+					case recv <- b:
+						lastCount = this
+					case <-ctx.Done():
+						close(recv)
+						return
+					}
 				}
 			}
 		}
