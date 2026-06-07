@@ -13,7 +13,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"os"
 	"os/exec"
 	"testing"
 	"time"
