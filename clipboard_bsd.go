@@ -39,10 +39,9 @@ func initialize() error {
 	return nil
 }
 
-// enumerateFormats reports the formats currently on the clipboard. Implemented
-// in a follow-up PR (shared X11 path); for now it returns nil so Formats()
-// degrades to empty.
-func enumerateFormats() []Format { return nil }
+// enumerateFormats reports the formats currently on the clipboard via the shared
+// X11 TARGETS enumeration.
+func enumerateFormats() []Format { return x11EnumerateFormats() }
 
 func read(t Format) (buf []byte, err error) {
 	switch t {
