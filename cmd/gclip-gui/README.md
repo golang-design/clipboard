@@ -8,8 +8,8 @@ The gclip GUI application writes a string to the system clipboard
 periodically then reads it back and renders it if possible.
 
 Because of the system limitation, on mobile devices, only string data is
-supported at the moment. Hence, one must use clipboard.FmtText. Other supplied
-formats result in a panic.
+supported at the moment. Hence, one must use clipboard.FmtText; other formats
+are unsupported there (Read returns nil and Write is a no-op).
 
 This example is intentded as cross platform application. To build it, one
 must use [gomobile](https://golang.org/x/mobile). You may follow the instructions

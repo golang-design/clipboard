@@ -9,9 +9,12 @@ import "golang.design/x/clipboard"
 ## Features
 
 - Cross platform supports: **macOS, Linux (X11 and Wayland), Windows, BSD (X11), iOS, and Android**
+- **Cgo-free on desktop** (macOS, Linux, Windows, BSD) — no C toolchain at build time, no `libX11`/`libwayland` at runtime
 - Copy/paste UTF-8 text
-- Copy/paste PNG encoded images (Desktop-only)
+- Copy/paste PNG-encoded images (Desktop-only); `Write` also accepts other encodings when their decoder is registered
 - Register and copy/paste custom MIME-typed formats (Desktop-only, raw passthrough)
+- Watch the clipboard for changes (event-driven on Wayland)
+- Discover what's on the clipboard with `Formats()` / `Format.MIME` (Desktop-only)
 - Command `gclip` as a demo application
 - Mobile app `gclip-gui` as a demo application
 
@@ -232,8 +235,10 @@ accessing system clipboards, but here are a few details you might need to know.
 - **Linux/X11 selection.** Only the `CLIPBOARD` selection (Ctrl+C/Ctrl+V)
   is accessed; the `PRIMARY` selection (middle-click paste) is not
   supported.
-- **Image format.** Image read/write assumes PNG-encoded data; other
-  encodings are undefined behavior.
+- **Image format.** `Read(FmtImage)` always returns PNG. `Write(FmtImage, ...)`
+  accepts PNG and normalizes other encodings to PNG when the matching decoder is
+  registered (blank-import it, e.g. `_ "image/jpeg"`). Use a custom format
+  (`Register`) for raw, unconverted bytes.
 - **Wayland.** The native Wayland backend uses the data-control protocol,
   which works without keyboard focus. Compositors that do not implement
   `ext-data-control-v1` or `zwlr_data_control_manager_v1` (e.g. GNOME
@@ -249,9 +254,9 @@ There are system level shortcuts to put screenshot image into your system clipbo
 - On Linux/Ubuntu, use `Ctrl+Shift+PrintScreen`
 - On Windows, use `Shift+Win+s`
 
-As described in the API documentation, the package supports read/write
-UTF8 encoded plain text or PNG encoded image data. Thus,
-the other types of data are not supported yet, i.e. undefined behavior.
+The built-in formats are UTF-8 encoded plain text (`FmtText`) and PNG encoded
+images (`FmtImage`). Arbitrary types can be exchanged as custom MIME formats via
+`Register` (raw passthrough). On mobile (iOS/Android) only text is supported.
 
 ## Who is using this package?
 
