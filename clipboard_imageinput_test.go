@@ -14,6 +14,7 @@ import (
 	"image/png"
 	"os"
 	"testing"
+	"time"
 
 	"golang.design/x/clipboard"
 )
@@ -42,7 +43,15 @@ func TestWriteImageAcceptsJPEG(t *testing.T) {
 
 	clipboard.Write(clipboard.FmtImage, jbuf.Bytes())
 
-	got := clipboard.Read(clipboard.FmtImage)
+	// Poll Read: on some backends (Wayland data-control) a freshly set
+	// selection takes a moment to be visible to a new reader connection.
+	var got []byte
+	for i := 0; i < 50; i++ {
+		if got = clipboard.Read(clipboard.FmtImage); got != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if got == nil {
 		t.Fatal("Read(FmtImage) returned nil after writing a JPEG")
 	}
