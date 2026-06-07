@@ -29,6 +29,11 @@ func TestWriteImageAcceptsJPEG(t *testing.T) {
 			t.Skip("CGO_ENABLED is set to 0")
 		}
 	}
+	// Ensure the backend is initialized (selects Wayland vs X11); this test may
+	// run before TestClipboardInit, and Write/Read need the backend resolved.
+	if err := clipboard.Init(); err != nil {
+		t.Skipf("clipboard unavailable: %v", err)
+	}
 
 	src := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	for y := 0; y < 8; y++ {
