@@ -22,6 +22,7 @@ import (
 	"image/png"
 	"reflect"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 	"unicode/utf16"
@@ -316,9 +317,71 @@ func writeCustom(format uintptr, buf []byte) error {
 	return nil
 }
 
-// enumerateFormats reports the formats currently on the clipboard. Implemented
-// in a follow-up PR; for now it returns nil so Formats() degrades to empty.
-func enumerateFormats() []Format { return nil }
+// enumerateFormats reports the formats currently on the clipboard by iterating
+// the available clipboard formats with EnumClipboardFormats and mapping each to
+// a Format.
+func enumerateFormats() []Format {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for {
+		r, _, _ := openClipboard.Call(0)
+		if r == 0 {
+			continue
+		}
+		break
+	}
+	defer closeClipboard.Call()
+
+	var out []Format
+	var format uintptr
+	for {
+		format, _, _ = enumClipboardFormats.Call(format)
+		if format == 0 {
+			break
+		}
+		if f, ok := windowsFormatFor(format); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// windowsFormatFor maps a Windows clipboard format id to a Format: the
+// predefined text/image formats to FmtText/FmtImage, and a registered format
+// whose name is a MIME type to a custom format (registered on demand).
+// Predefined formats we do not model have no registered name and are skipped.
+func windowsFormatFor(format uintptr) (Format, bool) {
+	switch format {
+	case cFmtUnicodeText:
+		return FmtText, true
+	case cFmtDIBV5, cFmtDIB, cFmtBitmap:
+		return FmtImage, true
+	}
+	switch name := clipboardFormatName(format); name {
+	case "":
+		return 0, false
+	case "UTF8_STRING", "text/plain", "text/plain;charset=utf-8":
+		return FmtText, true
+	case "image/png":
+		return FmtImage, true
+	default:
+		if strings.Contains(name, "/") {
+			return Register(name), true
+		}
+		return 0, false
+	}
+}
+
+// clipboardFormatName returns the registered name of a clipboard format id, or
+// "" for a predefined format (which has no registered name).
+func clipboardFormatName(format uintptr) string {
+	var buf [256]byte
+	n, _, _ := getClipboardFormatNameA.Call(format, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if n == 0 {
+		return ""
+	}
+	return string(buf[:n])
+}
 
 func read(t Format) (buf []byte, err error) {
 	// On Windows, OpenClipboard and CloseClipboard must be executed on
@@ -480,6 +543,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 
 const (
 	cFmtBitmap      = 2 // Win+PrintScreen
+	cFmtDIB         = 8
 	cFmtUnicodeText = 13
 	cFmtDIBV5       = 17
 	// Screenshot taken from special shortcut is in different format (why??), see:
@@ -546,6 +610,9 @@ var (
 	// a valid clipboard format.
 	// https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerclipboardformata
 	registerClipboardFormatA = user32.MustFindProc("RegisterClipboardFormatA")
+	// Retrieves from the clipboard the name of the specified registered format.
+	// https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclipboardformatnamea
+	getClipboardFormatNameA = user32.MustFindProc("GetClipboardFormatNameA")
 
 	kernel32 = syscall.NewLazyDLL("kernel32")
 
