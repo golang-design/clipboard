@@ -52,12 +52,11 @@ func initialize() error {
 	return nil
 }
 
-// enumerateFormats reports the formats currently on the clipboard. The X11 path
-// is implemented here; the Wayland path lands in a follow-up PR (returns nil for
-// now).
+// enumerateFormats reports the formats currently on the clipboard, via the
+// Wayland data-control offer or the X11 TARGETS list.
 func enumerateFormats() []Format {
 	if useWayland {
-		return nil
+		return wlEnumerateFormats()
 	}
 	return x11EnumerateFormats()
 }
