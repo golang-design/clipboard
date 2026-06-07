@@ -15,11 +15,13 @@ package clipboard
 
 import (
 	"bufio"
+	"encoding/binary"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	x11wire "golang.design/x/x11"
@@ -304,6 +306,108 @@ func x11Read(target string) ([]byte, error) {
 		return nil, nil
 	}
 	return v, nil
+}
+
+// atomName resolves an atom id to its string name via GetAtomName.
+func (x *x11conn) atomName(atom uint32) (string, error) {
+	seq, err := x.send(x11wire.GetAtomName(atom))
+	if err != nil {
+		return "", err
+	}
+	p, err := x.reply(seq)
+	if err != nil {
+		return "", err
+	}
+	return p.AtomName(), nil
+}
+
+// x11Targets returns the target names the current CLIPBOARD selection advertises
+// (via the TARGETS target), or nil if the clipboard is empty. The TARGETS
+// property is a list of 4-byte atom ids, each resolved back to its name.
+func x11Targets() ([]string, error) {
+	x, err := x11Connect()
+	if err != nil {
+		return nil, errUnavailable
+	}
+	defer x.Close()
+	x.c.SetReadDeadline(time.Now().Add(x11ReadTimeout))
+
+	sel, e1 := x.intern("CLIPBOARD")
+	prop, e2 := x.intern("GOLANG_DESIGN_DATA")
+	tgts, e3 := x.intern("TARGETS")
+	if e1 != nil || e2 != nil || e3 != nil {
+		return nil, errUnavailable
+	}
+
+	if _, err := x.send(x11wire.ConvertSelection(x.win, sel, tgts, prop, x11wire.CurrentTime)); err != nil {
+		return nil, errUnavailable
+	}
+	for {
+		p, err := x11wire.NextEvent(x.r)
+		if err != nil {
+			return nil, errUnavailable
+		}
+		if p.EventCode() != x11wire.EventSelectionNotify {
+			continue
+		}
+		if p.SelectionNotify().Property == x11wire.None {
+			return nil, nil // empty clipboard
+		}
+		break
+	}
+
+	gseq, err := x.send(x11wire.GetProperty(true, x.win, prop, 0, 0, 0xffffffff))
+	if err != nil {
+		return nil, errUnavailable
+	}
+	rp, err := x.reply(gseq)
+	if err != nil {
+		return nil, errUnavailable
+	}
+
+	atoms := rp.PropertyValue() // ATOM list, 4 bytes each
+	names := make([]string, 0, len(atoms)/4)
+	for i := 0; i+4 <= len(atoms); i += 4 {
+		name, err := x.atomName(binary.LittleEndian.Uint32(atoms[i:]))
+		if err != nil || name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// x11EnumerateFormats maps the advertised TARGETS to Format tokens, registering
+// custom MIME types on demand. Shared by the Linux and BSD backends.
+func x11EnumerateFormats() []Format {
+	names, err := x11Targets()
+	if err != nil {
+		return nil
+	}
+	out := make([]Format, 0, len(names))
+	for _, n := range names {
+		if f, ok := x11FormatForTarget(n); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// x11FormatForTarget maps an X11 target/atom name to a Format: the common text
+// atoms to FmtText, image/png to FmtImage, any other MIME-shaped name (one that
+// contains '/') to a registered custom format. X11 meta-targets such as TARGETS,
+// MULTIPLE and TIMESTAMP have no '/', so they are ignored.
+func x11FormatForTarget(name string) (Format, bool) {
+	switch name {
+	case "UTF8_STRING", "STRING", "TEXT", "text/plain", "text/plain;charset=utf-8":
+		return FmtText, true
+	case "image/png":
+		return FmtImage, true
+	}
+	if strings.Contains(name, "/") {
+		return Register(name), true
+	}
+	return 0, false
 }
 
 // x11Write takes ownership of the CLIPBOARD selection and serves its content to
