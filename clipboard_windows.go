@@ -123,9 +123,12 @@ func readImage() ([]byte, error) {
 	// inspect header information
 	info := (*bitmapV5Header)(unsafe.Pointer(p))
 
-	// maybe deal with other formats?
+	// The 32-bit path below reads straight BGRA. Other bit depths (e.g. a
+	// 24-bit image, which Windows commonly exposes as CF_DIB and synthesizes
+	// into a 24-bit CF_DIBV5) are decoded via the CF_DIB path, which rebuilds a
+	// BMP and decodes it with x/image/bmp — covering 24/16/8-bit DIBs (#65).
 	if info.BitCount != 32 {
-		return nil, errUnsupported
+		return readImageDib()
 	}
 
 	var data []byte
