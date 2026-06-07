@@ -100,3 +100,20 @@ func TestImageToDIBJPEGPNGPipeline(t *testing.T) {
 		}
 	}
 }
+
+func TestImageToDIBStraightAlpha(t *testing.T) {
+	// A BITMAPV5HEADER declares straight (non-premultiplied) alpha, so
+	// imageToDIB must store straight BGRA. Premultiplied storage darkens
+	// semi-transparent pixels, which straight-alpha consumers then read too
+	// dark (#105). Source NRGBA{200,100,50,128}; premultiplied would be
+	// ~{r:100,g:50,b:25}.
+	src := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	src.SetNRGBA(0, 0, color.NRGBA{R: 200, G: 100, B: 50, A: 128})
+
+	dib := imageToDIB(src)
+	off := int(unsafe.Sizeof(bitmapV5Header{}))
+	b, g, r, a := dib[off+0], dib[off+1], dib[off+2], dib[off+3]
+	if r != 200 || g != 100 || b != 50 || a != 128 {
+		t.Fatalf("stored BGRA = (b=%d,g=%d,r=%d,a=%d), want straight (b=50,g=100,r=200,a=128)", b, g, r, a)
+	}
+}

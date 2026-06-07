@@ -8,6 +8,7 @@ package clipboard
 
 import (
 	"image"
+	"image/color"
 	"unsafe"
 )
 
@@ -61,16 +62,19 @@ func imageToDIB(img image.Image) []byte {
 		for x := 0; x < width; x++ {
 			idx := int(offset) + 4*(y*width+x)
 			// DIB scanlines are stored bottom-up.
-			r, g, b, a := img.At(x, height-1-y).RGBA()
-			// color.Color.RGBA() returns 16-bit (0-0xffff) channels; take
-			// the high byte for 8-bit BGRA. Using uint8(r) here would keep
-			// the low byte, which is correct only for 8-bit-sourced images
-			// (where high byte == low byte) and produces garbage for 16-bit
-			// images such as those png.Encode emits for a decoded JPEG. See #48.
-			data[idx+2] = uint8(r >> 8)
-			data[idx+1] = uint8(g >> 8)
-			data[idx+0] = uint8(b >> 8)
-			data[idx+3] = uint8(a >> 8)
+			//
+			// The BITMAPV5HEADER declares straight (non-premultiplied) alpha
+			// via AlphaMask, so store straight 8-bit BGRA. color.Color.RGBA()
+			// returns alpha-premultiplied 16-bit channels; converting through
+			// NRGBA un-premultiplies and narrows to 8-bit in one step. For
+			// opaque pixels this equals the previous uint8(r>>8) (so #48/#102's
+			// 16-bit/opaque fix is preserved); for semi-transparent pixels it
+			// avoids the darkened, premultiplied RGB consumers misread (#105).
+			c := color.NRGBAModel.Convert(img.At(x, height-1-y)).(color.NRGBA)
+			data[idx+2] = c.R
+			data[idx+1] = c.G
+			data[idx+0] = c.B
+			data[idx+3] = c.A
 		}
 	}
 
