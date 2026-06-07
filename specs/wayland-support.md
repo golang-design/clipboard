@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Implemented |
 | **Issue** | [#6](https://github.com/golang-design/clipboard/issues/6) |
 | **Also closes** | [#61](https://github.com/golang-design/clipboard/issues/61) (crash on Wayland, folded into #6) |
 | **Related** | [#67](https://github.com/golang-design/clipboard/issues/67) (primary selection), [#25](https://github.com/golang-design/clipboard/issues/25)/[#51](https://github.com/golang-design/clipboard/issues/51) (drop Cgo) |
@@ -183,3 +183,35 @@ CI attempt, where an untested job was worse than none).
   event-driven `Watch`, and primary-selection support (#67) on Wayland.
 - **Risk:** headless-compositor CI flakiness; mitigated by treating CI setup as
   part of phase 2 rather than an afterthought.
+
+## 12. Outcome
+
+Shipped across **#109–#116** as a phased rollout (graceful-fail #110, wire core
+#112, read #113, write #114, watch #115, dispatch #116), tested under headless
+sway in CI against independent `wl-copy`/`wl-paste` clients.
+
+**As designed:**
+- Native data-control backend supporting `ext_data_control_manager_v1`
+  (preferred) and `zwlr_data_control_manager_v1` (fallback); fd passing via
+  `SCM_RIGHTS`.
+- Backend selection in `initialize()` probes `WAYLAND_DISPLAY` **and** verifies a
+  data-control manager is actually advertised (`wlAvailable`), falling back to
+  X11/XWayland otherwise.
+- `Watch` is **event-driven** (selection events, no polling), with a baseline
+  capture matching the X11 contract.
+
+**Deviations / limitations:**
+- **Phase 6 (wlr fallback) folded into the wire core** rather than shipping as a
+  separate phase; both managers are handled in #112.
+- **Primary selection not shipped.** §6/§11 floated it as an upside, but the
+  implementation covers only the regular CLIPBOARD selection; PRIMARY remains
+  reserved (#67).
+- **Same-process self-read limitation (discovered later).** Under data-control a
+  process does **not** observe its own just-set *custom* selection from a fresh
+  reader connection (built-in text/image happen to work same-process). Found
+  while adding custom formats; the same-process tests skip on Wayland and
+  cross-process interop is verified with `wl-copy`/`wl-paste` instead
+  (`clipboard_custom_linux_test.go`, #131).
+- **Custom formats + `Formats()` enumeration added later** (#131/#139), outside
+  the original phases — `wlEnumerateFormats` maps offered MIME types to Format
+  tokens, registering custom types on demand.
