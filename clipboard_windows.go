@@ -164,9 +164,12 @@ func readImageDib() ([]byte, error) {
 		cFmtDIB       = 8
 	)
 
-	hClipDat, _, err := getClipboardData.Call(cFmtDIB)
-	if err != nil {
-		return nil, errors.New("not dib format data: " + err.Error())
+	// Check the returned handle, not the syscall's lastErr: GetClipboardData
+	// does not clear GetLastError on success, so err can hold a stale non-zero
+	// value even when the format is present.
+	hClipDat, _, _ := getClipboardData.Call(cFmtDIB)
+	if hClipDat == 0 {
+		return nil, errUnavailable
 	}
 	pMemBlk, _, err := gLock.Call(hClipDat)
 	if pMemBlk == 0 {
