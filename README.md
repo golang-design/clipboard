@@ -118,6 +118,29 @@ Custom-format support is per platform:
   returns `nil` and `Write` is a no-op for custom formats — they degrade
   gracefully like the rest of the API.
 
+To discover what is currently on the clipboard, use `Formats`. It returns the
+available formats (registering any custom MIME types it finds on demand), and
+`Format.MIME` reports a token's identity:
+
+```go
+for _, f := range clipboard.Formats() {
+      switch f {
+      case clipboard.FmtText:
+            println("text")
+      case clipboard.FmtImage:
+            println("image")
+      default:
+            println("custom:", f.MIME()) // e.g. text/html, application/pdf
+            data := clipboard.Read(f)
+            _ = data
+      }
+}
+```
+
+`Formats` discovers types on the desktop backends (macOS, Windows, Linux/X11,
+BSD/X11, and Linux/Wayland); on iOS, Android, and CGO-disabled builds it returns
+an empty slice.
+
 ## Demos
 
 - A command line tool `gclip` for command line clipboard accesses, see document [here](./cmd/gclip/README.md).

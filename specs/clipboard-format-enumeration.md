@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Implemented |
 | **Issue** | [#89](https://github.com/golang-design/clipboard/issues/89) (enumeration half) |
 | **Builds on** | custom formats ([#17](https://github.com/golang-design/clipboard/issues/17)), tagged `Watch` ([#124](https://github.com/golang-design/clipboard/pull/124)) |
 
@@ -121,3 +121,36 @@ Spec-first, then one PR per scope (mirroring the custom-format rollout):
 
 Each lands green on CI with a round-trip test that writes a known format and
 asserts `Formats()` reports it.
+
+## 8. Outcome
+
+Shipped as `Formats() []Format` and `Format.MIME() string` (Option B —
+discovery with on-demand registration), rolled out one PR per scope:
+
+| PR | Scope |
+|---|---|
+| golang-design/x11#1 (v0.2.0) | `GetAtomName` + `Packet.AtomName` in the x11 codec |
+| #137 | Core: `Formats`, `Format.MIME`, `normalizeFormats`, `enumerateFormats` seam |
+| #138 | Linux/X11 + BSD — `TARGETS` enumeration (bumps x11 to v0.2.0) |
+| #139 | Linux/Wayland — offered-MIME enumeration |
+| #140 | Windows — `EnumClipboardFormats` + `GetClipboardFormatName` |
+| #141 | macOS — `NSPasteboard types` + UTI mapping |
+| this PR | Docs + spec wrap-up |
+
+### Design evolution (discovered during implementation)
+
+- **X11 needed a codec change.** `TARGETS` yields atom *ids*; reversing them to
+  names required `GetAtomName`, absent from `golang.design/x/x11` v0.1.0 (and
+  `Packet` exposed no raw bytes to hand-roll it). Added `GetAtomName` +
+  `Packet.AtomName` and released v0.2.0 — the full-parity path chosen over a
+  curated-candidate compromise.
+- **Wayland self-read caveat carries over.** Same as the custom-format data
+  path, a process does not observe its own just-set custom selection under
+  data-control, so Wayland enumeration is verified cross-process (`wl-copy`);
+  the same-process test skips on Wayland.
+- **Tests call backend internals on Wayland.** `enumerateFormats()` routes on
+  `useWayland` (set only by `Init`), so the Wayland test calls
+  `wlEnumerateFormats()` directly, matching the other `wl*` tests.
+
+This completes the enumeration half of #89; the tagged `Watch` (the "return a
+type with the content" half) shipped earlier in #124.
