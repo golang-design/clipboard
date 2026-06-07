@@ -8,6 +8,13 @@
 # Test binary, built with `go test -c`
 *.test
 
+# Built demo command binaries (no extension)
+/gclip
+/gclip-gui
+/cmd/gclip/gclip
+/cmd/gclip-gui/gclip-gui
+/cmd/customformat/customformat
+
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
