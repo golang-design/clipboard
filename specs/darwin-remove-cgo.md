@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Implemented |
 | **Issue** | [#69](https://github.com/golang-design/clipboard/issues/69) |
 | **Supersedes** | [#51](https://github.com/golang-design/clipboard/issues/51) (folded into #69) |
 | **Builds on** | [#83](https://github.com/golang-design/clipboard/pull/83) (TotallyGamerJet — purego prototype) |
@@ -232,3 +232,35 @@ CI already does the heavy lifting — `.github/workflows/clipboard.yml` runs, on
 - **Upside:** darwin joins Windows as a Cgo-free desktop backend; cross-compiling
   to macOS from a toolchain-less environment becomes possible; momentum for the
   parallel Linux goal (#25).
+
+## 12. Outcome
+
+Shipped in **#117** (purego/objc `NSPasteboard` binding), with follow-on
+hardening commits for autorelease handling, the TIFF fallback, and test scope.
+
+**As designed:**
+- purego `objc` over `dlopen`/`dlsym` to `NSPasteboard`; no C compiler at build
+  time and `clipboard_darwin.m` deleted.
+- TIFF read fallback via **Option B** (raw TIFF bytes → pure-Go transcode with
+  `x/image/tiff` + `image/png`).
+- `clipboard_nocgo.go` build tag flipped to exclude darwin; `purego` pinned to
+  `v0.10.1`; `runtime.KeepAlive` around every buffer handed to Obj-C.
+
+**Deviations from the design:**
+- **OS-thread pinning was required, unanticipated.** Draining an autorelease
+  pool after a goroutine migrated threads crashes; `newAutoreleasePool` pins the
+  OS thread (`runtime.LockOSThread`/`UnlockOSThread`) for the pool's lifetime —
+  a correctness detail §7 did not foresee.
+- **The suggested pure-Go TIFF transcode unit test (§8) was not added.** The
+  TIFF test still drives a real pasteboard via `sips`/`osascript` (it only
+  dropped its `CGO_ENABLED=0` skip).
+- **Wider test un-skip than §8 enumerated** (also un-skipped `TestClipboard`,
+  `…MultipleWrites`, `…ConcurrentRead`, `…WriteEmpty`, `…Watch` under
+  `CGO_ENABLED=0`) — strictly more coverage.
+
+**Known limitation:** a failed TIFF transcode in `clipboard_read_image` returns
+`nil` silently with no Option-A recovery — the §6 "exotic TIFF variant" residual
+risk is live.
+
+Custom pasteboard-type formats and `Formats()` enumeration were added later
+(#129/#137/#141), outside this spec's scope.

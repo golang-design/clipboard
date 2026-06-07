@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Implemented |
 | **Issue** | [#25](https://github.com/golang-design/clipboard/issues/25) |
 | **Related** | [#69](https://github.com/golang-design/clipboard/issues/69)/[#117](https://github.com/golang-design/clipboard/pull/117) (darwin, done), [`specs/wayland-support.md`](./wayland-support.md) (the pure-Go precedent), [#55](https://github.com/golang-design/clipboard/issues/55) (BSD) |
 | **Builds on** | [#20](https://github.com/golang-design/clipboard/pull/20) (runtime `dlopen` of libX11) |
@@ -263,3 +263,40 @@ rule).
   cross-compiling to Linux needs no C toolchain; under Option A the `libX11`
   runtime dependency disappears entirely; and the existing Wayland backend
   becomes usable in cgo-free builds.
+
+## 12. Outcome
+
+Shipped as **Option A** across **#119** (the pure-Go X11 wire codec) and
+**#120** (the Linux backend), with **#121** extending the same backend to the
+BSDs.
+
+**As designed:**
+- Pure-Go X11 wire protocol over the display socket — no `libX11` at runtime, no
+  C toolchain at build. `$DISPLAY` parsing, MIT-MAGIC-COOKIE-1 auth from
+  `~/.Xauthority`, and the full selection protocol (InternAtom, CreateWindow,
+  Set/GetSelectionOwner, ConvertSelection, ChangeProperty/GetProperty, SendEvent).
+- The #61 crash guard dissolves structurally: the read loop owns error packets
+  (`NextEvent` drops X11 errors), so no Xlib default handler is needed; the old
+  error-handler test was removed.
+- `clipboard_nocgo.go` build tag updated to exclude Linux/BSD; CGO=0 round-trip
+  tests un-skipped in CI.
+- **INCR / PRIMARY remain unimplemented**, matching the old C behavior (no
+  regression) — still follow-ups (#67/#22).
+
+**Deviations from the design:**
+- **The codec became its own module.** The spec proposed an in-repo
+  `internal/x11wire`; it shipped that way in #119 but was then **extracted to a
+  first-party module `golang.design/x/x11`** (#122), which clipboard now depends
+  on (go.mod: `v0.2.0` — bumped from v0.1.0 when `GetAtomName` was added for
+  `Formats()` enumeration, #138). In `clipboard_x11.go` it is imported aliased as
+  `x11wire`.
+- **One shared file for all X11 platforms.** Rather than the proposed
+  `clipboard_x11_linux.go` (`linux && !android`), the backend is
+  `clipboard_x11.go` with `(linux || freebsd || openbsd || netbsd) && !android`,
+  because BSD support (#121) landed immediately after.
+- **Added robustness not in the design:** per-reply sequence-number matching,
+  CreateWindow confirmation with retry on `BadIDChoice`, and connection-setup
+  retries to tolerate transient resets under churn.
+
+Custom formats and `Formats()` enumeration on X11 were added later
+(#130/#138), reusing this backend.
