@@ -44,9 +44,13 @@ clipboard.Write(clipboard.FmtImage, []byte("image data"))
 clipboard.Read(clipboard.FmtImage)
 ```
 
-Note that read/write regarding image format assumes that the bytes are
-PNG encoded since it serves the alpha blending purpose that might be
-used in other graphical software.
+Note that the clipboard serves images as PNG (it serves the alpha-blending
+purpose used by other graphical software), so `Read(FmtImage)` always returns
+PNG. `Write(FmtImage, ...)` accepts PNG directly and will also normalize other
+encodings to PNG when their decoder is registered — blank-import the decoder you
+need (e.g. `import _ "image/jpeg"` or `import _ "golang.org/x/image/webp"`); no
+decoder is a mandatory dependency of this package. If you need to put raw,
+unconverted bytes on the clipboard, register a custom format instead (see above).
 
 In addition, `clipboard.Write` returns a channel that can receive an
 empty struct as a signal, which indicates the corresponding write call

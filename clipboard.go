@@ -101,9 +101,12 @@ XWayland bridge with DISPLAY set.
 package clipboard // import "golang.design/x/clipboard"
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"sync"
 )
@@ -184,12 +187,19 @@ func Read(t Format) []byte {
 // If nothing else ever overwrites the clipboard, the channel never fires —
 // so do not block on it expecting it to report that this write completed.
 //
-// If format t indicates an image, then the given buf assumes
-// the image data is PNG encoded.
+// If format t indicates an image, buf is normalized to PNG before being placed
+// on the clipboard. PNG input is stored as-is; other formats are accepted if the
+// program has registered the matching image decoder (e.g. blank-import
+// _ "image/jpeg" or _ "golang.org/x/image/webp"), and undecodable input passes
+// through unchanged. The clipboard therefore always serves PNG, regardless of
+// the input encoding.
 func Write(t Format, buf []byte) <-chan struct{} {
 	lock.Lock()
 	defer lock.Unlock()
 
+	if t == FmtImage {
+		buf = toPNG(buf)
+	}
 	changed, err := write(t, buf)
 	if err != nil {
 		if debug {
@@ -198,6 +208,32 @@ func Write(t Format, buf []byte) <-chan struct{} {
 		return nil
 	}
 	return changed
+}
+
+// toPNG normalizes an FmtImage payload to canonical PNG: the clipboard stores
+// and serves PNG so consumers get a consistent, alpha-aware encoding. If buf is
+// already PNG (or not a decodable image) it is returned unchanged; otherwise it
+// is decoded and re-encoded as PNG.
+//
+// Decoding relies on the image decoders the importing program has registered, so
+// no decoder is a mandatory dependency of this package: to accept JPEG/GIF/WebP
+// input, blank-import the corresponding decoder (e.g. _ "image/jpeg",
+// _ "golang.org/x/image/webp"). Unknown or undecodable input passes through
+// unchanged, preserving the previous bytes-in behavior.
+func toPNG(buf []byte) []byte {
+	// Cheap path: already PNG (avoid a needless decode/encode round-trip).
+	if len(buf) >= 8 && bytes.Equal(buf[:8], []byte("\x89PNG\r\n\x1a\n")) {
+		return buf
+	}
+	img, _, err := image.Decode(bytes.NewReader(buf))
+	if err != nil {
+		return buf // not a decodable image (or its decoder isn't registered)
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		return buf
+	}
+	return out.Bytes()
 }
 
 // Data is a single observed clipboard change: the format the change was
