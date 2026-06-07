@@ -18,9 +18,10 @@ import (
 // customRoundTrip writes and reads back several custom formats, asserting the
 // bytes survive verbatim (no encoding or conversion) and that ReadAs decodes
 // them. It exercises a synthetic edge-case blob as well as real-world fixtures
-// (a text/html document and a binary PNG). Each platform backend that adopts
-// the custom-format seam wires this helper into a build-tagged
-// TestCustomFormatRoundTrip; the helper itself is platform-agnostic.
+// (HTML, PDF, DOCX, XLSX, and a PNG used as opaque binary). Each platform
+// backend that adopts the custom-format seam wires this helper into a
+// build-tagged TestCustomFormatRoundTrip; the helper itself is
+// platform-agnostic.
 func customRoundTrip(t *testing.T) {
 	t.Helper()
 
@@ -35,32 +36,34 @@ func customRoundTrip(t *testing.T) {
 	customExact(t, "application/x.golang-design.clipboard-test",
 		[]byte{0x00, 0x01, 0x02, 0xff, 0xfe, 'h', 'i', 0x00, 0x80})
 
-	// A real text/html document (vendored from example.com) round-trips
-	// verbatim — realistic, non-trivial content for the canonical rich-text
-	// custom format.
-	html, err := os.ReadFile("tests/testdata/sample.html")
-	if err != nil {
-		t.Fatalf("read sample.html: %v", err)
+	// Real-world fixtures (see tests/testdata/README.md) round-trip verbatim
+	// under their canonical MIME types, covering text and several binary office
+	// document formats. The PNG bytes are reused under a generic binary MIME to
+	// prove custom formats are raw passthrough — distinct from FmtImage, which
+	// transcodes.
+	fixtures := []struct{ mime, file string }{
+		{"text/html", "sample.html"},
+		{"application/pdf", "sample.pdf"},
+		{"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "sample.docx"},
+		{"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "sample.xlsx"},
+		{"application/octet-stream", "clipboard.png"},
 	}
-	customExact(t, "text/html", html)
+	for _, f := range fixtures {
+		data, err := os.ReadFile("tests/testdata/" + f.file)
+		if err != nil {
+			t.Fatalf("read %s: %v", f.file, err)
+		}
+		customExact(t, f.mime, data)
 
-	// A real binary payload (the test PNG bytes) under a non-image MIME proves
-	// custom formats are raw passthrough — distinct from FmtImage, which
-	// transcodes. This is also a larger (~21 KB) transfer than the blob above.
-	bin, err := os.ReadFile("tests/testdata/clipboard.png")
-	if err != nil {
-		t.Fatalf("read clipboard.png: %v", err)
-	}
-	customExact(t, "application/octet-stream", bin)
-
-	// ReadAs decodes the format last written above through a caller function.
-	f := clipboard.Register("application/octet-stream")
-	n, err := clipboard.ReadAs(f, func(b []byte) (int, error) { return len(b), nil })
-	if err != nil {
-		t.Fatalf("ReadAs returned error: %v", err)
-	}
-	if n != len(bin) {
-		t.Fatalf("ReadAs decoded length = %d, want %d", n, len(bin))
+		// ReadAs decodes the same bytes through a caller-supplied function.
+		token := clipboard.Register(f.mime)
+		n, err := clipboard.ReadAs(token, func(b []byte) (int, error) { return len(b), nil })
+		if err != nil {
+			t.Fatalf("ReadAs(%s): %v", f.mime, err)
+		}
+		if n != len(data) {
+			t.Fatalf("ReadAs(%s) decoded length = %d, want %d", f.mime, n, len(data))
+		}
 	}
 
 	// A different, unwritten custom format reads back as nil / ErrNoData.

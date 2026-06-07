@@ -2,16 +2,21 @@
 
 Fixtures used by the package tests.
 
-## sample.html
+## sample.* (custom-format fixtures)
 
-A real `text/html` document used to round-trip a custom clipboard format
-(`clipboard.Register("text/html")`) with realistic, non-trivial content.
+Real-world files round-tripped through custom clipboard formats
+(`clipboard.Register(mime)`) to verify raw, byte-exact passthrough with
+realistic content across common MIME types.
 
-- **Source:** <https://example.com/> (IANA's reserved example domain).
-- **Retrieved:** 2026-06-07.
-- **License/usage:** the page states "This domain is for use in documentation
-  examples without needing permission," so it is safe to vendor as a fixture.
-  Stored verbatim as downloaded.
+| File | MIME | Provenance |
+|------|------|------------|
+| `sample.html` | `text/html` | Downloaded from <https://example.com/> (IANA's reserved example domain) on 2026-06-07; stored verbatim. The page states "This domain is for use in documentation examples without needing permission," so it is safe to vendor. |
+| `sample.pdf` | `application/pdf` | Generated locally with `pandoc` from a one-line Markdown source. |
+| `sample.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | Generated locally with `pandoc` from a one-line Markdown source. |
+| `sample.xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | A minimal valid OOXML spreadsheet authored by hand and zipped. |
+
+The generated files contain only placeholder content authored for this
+repository, so they carry no third-party license.
 
 ## *.png
 
