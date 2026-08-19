@@ -115,6 +115,15 @@ doc, err := clipboard.ReadAs(html, func(b []byte) (*Node, error) {
 })
 ```
 
+The MIME type is the portable identity; each backend resolves it to the type
+that platform's applications actually publish. Linux/X11, BSD and Wayland speak
+MIME natively, whereas macOS pasteboard types (UTIs) and Windows registered
+format names are their own namespaces, so a best-effort alias table maps between
+them: `Register("image/png")` reads and writes the `PNG` clipboard format on
+Windows and `public.png` on macOS — the types Chromium, Firefox, Office and
+Preview use. A MIME type with no alias is used verbatim, which round-trips with
+this library but is not necessarily understood by other applications.
+
 Custom-format support is per platform:
 
 - **macOS, Windows, Linux/X11, BSD/X11:** full read/write/watch round-trip.

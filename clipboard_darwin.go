@@ -110,22 +110,60 @@ func enumerateFormats() []Format {
 	return out
 }
 
-// darwinFormatFor maps a pasteboard type (a UTI, or for this package's custom
-// formats the MIME string used verbatim) to a Format: the built-in text/image
-// UTIs to FmtText/FmtImage, a few common UTIs to their MIME via a best-effort
-// alias, and any MIME-shaped type to a custom format registered on demand.
+// darwinNativeTypes aliases a portable MIME type to the pasteboard type other
+// macOS applications publish that data under. Pasteboard types are UTIs — their
+// own namespace, not MIME types — so using the MIME string verbatim only ever
+// round-trips with this library itself, never with another app (#160).
+//
+// Only aliases whose data is the MIME type's bytes verbatim belong here, since
+// custom formats are raw passthrough.
+var darwinNativeTypes = map[string]string{
+	"text/html":       "public.html",
+	"application/pdf": "com.adobe.pdf",
+	"text/rtf":        "public.rtf",
+	"image/png":       "public.png",
+	"image/tiff":      "public.tiff",
+	"image/jpeg":      "public.jpeg",
+}
+
+// darwinPasteboardTypes returns the pasteboard types a MIME type may appear
+// under, most preferred first: its native UTI (when it has one), then the MIME
+// string itself. Reads try each in turn, so data published under either is
+// reachable; writes use the first.
+func darwinPasteboardTypes(mime string) []string {
+	if uti, ok := darwinNativeTypes[mime]; ok {
+		return []string{uti, mime}
+	}
+	return []string{mime}
+}
+
+// darwinMIMEForType is the inverse of darwinNativeTypes: it maps a pasteboard
+// UTI back to the MIME type it stands for.
+func darwinMIMEForType(t string) (string, bool) {
+	for mime, uti := range darwinNativeTypes {
+		if t == uti {
+			return mime, true
+		}
+	}
+	return "", false
+}
+
+// darwinFormatFor maps a pasteboard type (a UTI, or for a MIME type without a
+// native alias the MIME string used verbatim) to a Format: the built-in
+// text/image UTIs to FmtText/FmtImage, an aliased UTI to its MIME type's custom
+// token, and any other MIME-shaped type to a custom format registered on demand.
+// The built-in image UTIs are matched first, so public.png/public.tiff report
+// FmtImage even though they also alias image/png and image/tiff; both tokens
+// read the same bytes.
 func darwinFormatFor(t string) (Format, bool) {
 	switch t {
 	case "public.utf8-plain-text", "public.plain-text", "NSStringPboardType":
 		return FmtText, true
 	case "public.png", "public.tiff":
 		return FmtImage, true
-	case "public.html":
-		return Register("text/html"), true
-	case "com.adobe.pdf":
-		return Register("application/pdf"), true
-	case "public.rtf":
-		return Register("text/rtf"), true
+	}
+	if mime, ok := darwinMIMEForType(t); ok {
+		return Register(mime), true
 	}
 	if strings.Contains(t, "/") {
 		return Register(t), true
@@ -323,23 +361,30 @@ func nsString(s string) objc.ID {
 	return str
 }
 
-// clipboard_read_custom returns the raw bytes stored under the given MIME type
-// (used as the pasteboard type verbatim), or nil if no such data is present.
+// clipboard_read_custom returns the raw bytes stored under the given MIME type,
+// resolved to a pasteboard type (see darwinPasteboardTypes), or nil if no such
+// data is present.
 func clipboard_read_custom(mime string) []byte {
 	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	return nsdataBytes(pasteboard.Send(sel_dataForType, nsString(mime)))
+	for _, t := range darwinPasteboardTypes(mime) {
+		if out := nsdataBytes(pasteboard.Send(sel_dataForType, nsString(t))); out != nil {
+			return out
+		}
+	}
+	return nil
 }
 
-// clipboard_write_custom stores buf verbatim under the given MIME type with no
-// conversion (raw passthrough), replacing the current clipboard contents.
+// clipboard_write_custom stores buf verbatim under the given MIME type's
+// pasteboard type with no conversion (raw passthrough), replacing the current
+// clipboard contents.
 func clipboard_write_custom(mime string, buf []byte) bool {
 	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
 	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
 	runtime.KeepAlive(buf)
 	pasteboard.Send(sel_clearContents)
-	return pasteboard.Send(sel_setDataForType, data, nsString(mime)) != 0
+	return pasteboard.Send(sel_setDataForType, data, nsString(darwinPasteboardTypes(mime)[0])) != 0
 }
 
 func clipboard_change_count() int {
