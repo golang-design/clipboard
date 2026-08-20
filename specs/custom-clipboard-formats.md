@@ -104,7 +104,7 @@ specifics out of the public API and out of user code.
 |---|---|---|
 | Linux/X11 | target atom (`XInternAtom`) | MIME ≈ atom directly (`text/html`, `application/pdf`) |
 | macOS | `NSPasteboardType` (NSString) | any string round-trips with itself; cross-app interop via best-effort MIME→UTI alias table (`text/html`→`public.html`, `application/pdf`→`com.adobe.pdf`) |
-| Windows | `CF_*` or `RegisterClipboardFormat` | predefined `CF_*` for known MIME, else register the MIME string as a named format |
+| Windows | `CF_*` or `RegisterClipboardFormat` | predefined `CF_*` for known MIME, else a best-effort MIME→registered-name alias table (`image/png`→`PNG`), falling back to the MIME string as the format name |
 
 **Honest scope:** *self round-trip* (this library writing and reading its own data)
 works with any string on every desktop platform. *Cross-application interop* is
@@ -205,3 +205,19 @@ Windows. No new Cgo surface, consistent with the purego/pure-Go backends.
 - **Enumeration (#89) still reserved.** The tagged multi-format watch shipped in
   #124 and already accepts registered tokens; `Formats() []Format` remains the
   one unshipped half.
+- **The alias tables are load-bearing after all (#160).** The first rollout
+  shipped resolution as "the MIME string itself" on every backend, and grew the
+  §5 alias tables only *inbound*, when enumeration (#89) had to name the types it
+  found. That made resolution asymmetric: `Register("image/png")` registered a
+  Windows format literally named `image/png`, which no application publishes, so
+  the original PNG bytes real apps put on the clipboard (under the registered
+  name `PNG`) were unreachable — the §6 escape hatch for the #48 image bug did
+  not actually work — and enumeration could hand back a macOS token that `Read`
+  then resolved to a different pasteboard type and returned nil for. The fix is
+  one table per platform applied in **both** directions, with reads trying the
+  native name first and the MIME string second, so data published under either is
+  reachable. Only aliases whose payload is the MIME type's bytes verbatim belong
+  in a table, since custom formats are raw passthrough: `text/html`→`HTML Format`
+  (CF_HTML) is deliberately absent, because that payload is a header-wrapped
+  fragment rather than `text/html` itself. X11/Wayland need no table — MIME *is*
+  their native namespace, which is what §3 chose it for.

@@ -257,21 +257,91 @@ func writeImage(buf []byte) error {
 	return nil
 }
 
-// registerCustomFormat maps a MIME string to a Windows clipboard format ID via
-// RegisterClipboardFormat. Repeated registrations of the same name return the
-// same ID, and the ID is unique per name across the window station, so this
-// library and any other app naming the format identically interoperate.
+// windowsNativeNames aliases a portable MIME type to the registered clipboard
+// format name Windows applications actually publish that data under. Windows
+// registered-format names are their own namespace — they are not MIME types —
+// so without this table Register("image/png") would name a format literally
+// "image/png", which no other application writes or reads (#160).
+//
+// Only aliases whose data is the MIME type's bytes verbatim belong here, since
+// custom formats are raw passthrough. That deliberately excludes CF_HTML
+// ("HTML Format"), whose payload is a header-wrapped fragment rather than
+// text/html itself, and CF_HDROP, which is a struct rather than a text/uri-list.
+var windowsNativeNames = map[string]string{
+	// The de-facto PNG format: Chromium, Firefox, Microsoft Office, Snip &
+	// Sketch and Paint all publish original PNG bytes under this name. It is
+	// the lossless alternative to CF_DIBV5, which carries raw pixels only.
+	"image/png": "PNG",
+	// CF_RTF, registered by name; the data is RTF text as-is.
+	"text/rtf": "Rich Text Format",
+}
+
+// windowsFormatNames returns the registered format names a MIME type may appear
+// under, most preferred first: its native alias (when it has one), then the MIME
+// string itself. Reads try each in turn, so data published under either name is
+// reachable; writes use the first.
+func windowsFormatNames(mime string) []string {
+	if native, ok := windowsNativeNames[mime]; ok {
+		return []string{native, mime}
+	}
+	return []string{mime}
+}
+
+// windowsMIMEForName is the inverse of windowsNativeNames: it maps a registered
+// format name back to the MIME type it stands for. Format names are compared
+// case-insensitively, matching RegisterClipboardFormat.
+func windowsMIMEForName(name string) (string, bool) {
+	for mime, native := range windowsNativeNames {
+		if strings.EqualFold(name, native) {
+			return mime, true
+		}
+	}
+	return "", false
+}
+
+// registerCustomFormat maps a MIME string to the Windows clipboard format ID it
+// is written under, resolving it to a native format name first (see
+// windowsNativeNames).
 func registerCustomFormat(mime string) (uintptr, error) {
-	name, err := syscall.BytePtrFromString(mime)
+	return registerFormatName(windowsFormatNames(mime)[0])
+}
+
+// registerFormatName maps a clipboard format name to a Windows clipboard format
+// ID via RegisterClipboardFormat. Repeated registrations of the same name return
+// the same ID, and the ID is unique per name across the window station, so this
+// library and any other app naming the format identically interoperate.
+func registerFormatName(name string) (uintptr, error) {
+	p, err := syscall.BytePtrFromString(name)
 	if err != nil {
 		return 0, err
 	}
-	id, _, err := registerClipboardFormatA.Call(uintptr(unsafe.Pointer(name)))
-	runtime.KeepAlive(name)
+	id, _, err := registerClipboardFormatA.Call(uintptr(unsafe.Pointer(p)))
+	runtime.KeepAlive(p)
 	if id == 0 {
 		return 0, err
 	}
 	return id, nil
+}
+
+// availableCustomFormat resolves a MIME type to the clipboard format ID to read
+// it from: the first of its candidate names (windowsFormatNames) currently on
+// the clipboard. When none is present it returns the preferred name's ID, so the
+// caller's availability check reports the format as missing as usual.
+func availableCustomFormat(mime string) (uintptr, error) {
+	var first uintptr
+	for _, name := range windowsFormatNames(mime) {
+		id, err := registerFormatName(name)
+		if err != nil {
+			return 0, err
+		}
+		if first == 0 {
+			first = id
+		}
+		if r, _, _ := isClipboardFormatAvailable.Call(id); r != 0 {
+			return id, nil
+		}
+	}
+	return first, nil
 }
 
 // readCustom returns the raw bytes stored under the given clipboard format ID,
@@ -353,8 +423,8 @@ func enumerateFormats() []Format {
 }
 
 // windowsFormatFor maps a Windows clipboard format id to a Format: the
-// predefined text/image formats to FmtText/FmtImage, and a registered format
-// whose name is a MIME type to a custom format (registered on demand).
+// predefined text/image formats to FmtText/FmtImage, and a registered format to
+// a custom format (registered on demand) when its name denotes one.
 // Predefined formats we do not model have no registered name and are skipped.
 func windowsFormatFor(format uintptr) (Format, bool) {
 	switch format {
@@ -363,19 +433,27 @@ func windowsFormatFor(format uintptr) (Format, bool) {
 	case cFmtDIBV5, cFmtDIB, cFmtBitmap:
 		return FmtImage, true
 	}
-	switch name := clipboardFormatName(format); name {
+	return windowsFormatForName(clipboardFormatName(format))
+}
+
+// windowsFormatForName maps a registered clipboard format name to a Format. A
+// name that aliases a MIME type (windowsNativeNames) and a name that already is
+// a MIME type both resolve to that MIME type's custom token, so every token
+// reported by Formats resolves back to the same clipboard data on Read.
+func windowsFormatForName(name string) (Format, bool) {
+	switch name {
 	case "":
 		return 0, false
 	case "UTF8_STRING", "text/plain", "text/plain;charset=utf-8":
 		return FmtText, true
-	case "image/png":
-		return FmtImage, true
-	default:
-		if strings.Contains(name, "/") {
-			return Register(name), true
-		}
-		return 0, false
 	}
+	if mime, ok := windowsMIMEForName(name); ok {
+		return Register(mime), true
+	}
+	if strings.Contains(name, "/") {
+		return Register(name), true
+	}
+	return 0, false
 }
 
 // clipboardFormatName returns the registered name of a clipboard format id, or
@@ -438,7 +516,7 @@ func read(t Format) (buf []byte, err error) {
 		if !ok {
 			return nil, errUnsupported
 		}
-		format, err = registerCustomFormat(mime)
+		format, err = availableCustomFormat(mime)
 		if err != nil {
 			return nil, err
 		}
