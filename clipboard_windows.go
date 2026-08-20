@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf16"
@@ -614,7 +615,115 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 	return changed, nil
 }
 
+// watch observes the clipboard for changes in format t until ctx is canceled.
+//
+// Windows will report changes rather than being asked for them: a window
+// registered with AddClipboardFormatListener receives WM_CLIPBOARDUPDATE on
+// every clipboard change (#153). watchEvent takes that path; watchPoll is the
+// fallback for the environments where a window cannot be created at all, such
+// as a service running in Session 0 (#145).
 func watch(ctx context.Context, t Format) <-chan []byte {
+	if recv, ok := watchEvent(ctx, t); ok {
+		return recv
+	}
+	return watchPoll(ctx, t)
+}
+
+// watchEvent watches through a message-only window registered as a clipboard
+// format listener, so a change is delivered when it happens instead of at the
+// next tick. It reports false — having cleaned up whatever it did create — when
+// the window cannot be set up, leaving the caller to fall back to polling.
+func watchEvent(ctx context.Context, t Format) (<-chan []byte, bool) {
+	if !clipboardListenerAvailable() {
+		return nil, false
+	}
+
+	recv := make(chan []byte, 1)
+	// started reports whether the window is up and listening. watch blocks on
+	// it, so the fallback decision is made before Watch returns to the user.
+	started := make(chan bool, 1)
+
+	go func() {
+		// A window belongs to the thread that created it and its messages are
+		// only retrievable there, so this goroutine keeps the thread for as
+		// long as it holds the window. It never unlocks: letting the goroutine
+		// exit while locked retires the thread along with its message queue.
+		runtime.LockOSThread()
+
+		hwnd, err := newMessageWindow()
+		if err != nil {
+			started <- false
+			return
+		}
+		defer destroyWindow.Call(hwnd)
+
+		if r, _, _ := addClipboardFormatListener.Call(hwnd); r == 0 {
+			started <- false
+			return
+		}
+		defer removeClipboardFormatListener.Call(hwnd)
+
+		// Baseline the sequence number before announcing readiness: a change
+		// made the instant Watch returns must not slip through, and a
+		// WM_CLIPBOARDUPDATE that merely follows registration must not be
+		// reported as one.
+		cnt, _, _ := getClipboardSequenceNumber.Call()
+		started <- true
+
+		// PostMessageW is the only way to reach a thread parked in GetMessageW,
+		// and it is safe to call from another goroutine. This goroutine ends
+		// with ctx, so it outlives nothing.
+		go func() {
+			<-ctx.Done()
+			postMessageW.Call(hwnd, wmWatchStop, 0, 0)
+		}()
+
+		var msg wndMsg
+		for {
+			// Filtered to hwnd: only this window's messages are retrieved.
+			r, _, _ := getMessageW.Call(uintptr(unsafe.Pointer(&msg)), hwnd, 0, 0)
+			if int32(r) <= 0 { // 0 is WM_QUIT, -1 an error; both end the watch.
+				close(recv)
+				return
+			}
+			if msg.Message == wmWatchStop {
+				close(recv)
+				return
+			}
+			if msg.Message != wmClipboardUpdate {
+				continue
+			}
+			cur, _, _ := getClipboardSequenceNumber.Call()
+			if cur == cnt {
+				continue
+			}
+			// The listener fires for every change, whatever its format; a nil
+			// read means this change was not in the watched one.
+			b := Read(t)
+			if b == nil {
+				cnt = cur
+				continue
+			}
+			select {
+			case recv <- b:
+				cnt = cur
+			case <-ctx.Done():
+				close(recv)
+				return
+			}
+		}
+	}()
+
+	if !<-started {
+		return nil, false
+	}
+	return recv, true
+}
+
+// watchPoll observes the clipboard by comparing the sequence number on a fixed
+// tick. It is the fallback for backends and environments without a usable
+// clipboard listener; changes closer together than the interval coalesce.
+func watchPoll(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	ready := make(chan struct{})
 	go func() {
@@ -648,6 +757,125 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 	}()
 	<-ready
 	return recv
+}
+
+const (
+	// WM_CLIPBOARDUPDATE, posted to every registered clipboard format listener
+	// when the clipboard changes.
+	wmClipboardUpdate = 0x031D
+	// wmWatchStop is a private message (the WM_APP range is reserved for
+	// application use) posted to unpark a watcher from GetMessageW on cancel.
+	wmWatchStop = 0x8000 + 1 // WM_APP+1
+	// HWND_MESSAGE, i.e. (HWND)-3. A window parented to it is message-only: no
+	// screen presence, no z-order, no input — it exists to receive messages.
+	hwndMessage = ^uintptr(2)
+)
+
+// wndMsg is the Win32 MSG structure. LPrivate is undocumented but present in
+// the layout, so it is included: GetMessage writes the whole struct.
+type wndMsg struct {
+	Hwnd     uintptr
+	Message  uint32
+	WParam   uintptr
+	LParam   uintptr
+	Time     uint32
+	Pt       struct{ X, Y int32 }
+	LPrivate uint32
+}
+
+// wndClassEx is the Win32 WNDCLASSEXW structure.
+type wndClassEx struct {
+	Size       uint32
+	Style      uint32
+	WndProc    uintptr
+	ClsExtra   int32
+	WndExtra   int32
+	Instance   uintptr
+	Icon       uintptr
+	Cursor     uintptr
+	Background uintptr
+	MenuName   *uint16
+	ClassName  *uint16
+	IconSm     uintptr
+}
+
+var (
+	// The window class is registered once per process. syscall.NewCallback
+	// allocates a callback that is never released and the process has a hard
+	// cap on how many it may hold, so registering per watch() would eventually
+	// panic a program that starts and cancels watchers in a loop.
+	watchClassOnce sync.Once
+	watchClassName *uint16
+	watchClassAtom uintptr
+)
+
+// registerWatchClass registers the window class the watcher's message-only
+// window is created from. Its window procedure only defers to DefWindowProcW:
+// WM_CLIPBOARDUPDATE is a posted message, so the message loop reads it straight
+// off the queue and nothing needs handling here.
+func registerWatchClass() {
+	name, err := syscall.UTF16PtrFromString("golang.design.clipboard.watch")
+	if err != nil {
+		return
+	}
+	instance, _, _ := getModuleHandleW.Call(0)
+	wc := wndClassEx{
+		Style: 0,
+		WndProc: syscall.NewCallback(func(hwnd, msg, wparam, lparam uintptr) uintptr {
+			r, _, _ := defWindowProcW.Call(hwnd, msg, wparam, lparam)
+			return r
+		}),
+		Instance:  instance,
+		ClassName: name,
+	}
+	wc.Size = uint32(unsafe.Sizeof(wc))
+	atom, _, _ := registerClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+	if atom == 0 {
+		return
+	}
+	watchClassName, watchClassAtom = name, atom
+}
+
+// newMessageWindow creates a message-only window on the calling thread. The
+// caller must have locked the OS thread and must destroy the window from it.
+func newMessageWindow() (uintptr, error) {
+	watchClassOnce.Do(registerWatchClass)
+	if watchClassAtom == 0 {
+		return 0, errUnavailable
+	}
+	instance, _, _ := getModuleHandleW.Call(0)
+	hwnd, _, err := createWindowExW.Call(
+		0,                                       // dwExStyle
+		uintptr(unsafe.Pointer(watchClassName)), // lpClassName
+		0,                                       // lpWindowName
+		0,                                       // dwStyle
+		0, 0, 0, 0,                              // x, y, nWidth, nHeight
+		hwndMessage, // hWndParent: message-only
+		0,           // hMenu
+		instance,    // hInstance
+		0,           // lpParam
+	)
+	if hwnd == 0 {
+		return 0, err
+	}
+	return hwnd, nil
+}
+
+// clipboardListenerAvailable reports whether the user32 exports the event-driven
+// watch needs are all present. They have shipped since Vista, so this only ever
+// fails on an unexpectedly stripped system — in which case watch polls instead
+// of panicking at package initialization the way MustFindProc would.
+func clipboardListenerAvailable() bool {
+	for _, p := range []*syscall.Proc{
+		addClipboardFormatListener, removeClipboardFormatListener,
+		registerClassExW, createWindowExW, destroyWindow, defWindowProcW,
+		getMessageW, postMessageW,
+	} {
+		if p == nil {
+			return false
+		}
+	}
+	return getModuleHandleW.Find() == nil
 }
 
 const (
@@ -723,6 +951,43 @@ var (
 	// https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclipboardformatnamea
 	getClipboardFormatNameA = user32.MustFindProc("GetClipboardFormatNameA")
 
+	// The event-driven watch (#153) needs a window to receive
+	// WM_CLIPBOARDUPDATE on. These are looked up leniently rather than with
+	// MustFindProc: they have shipped since Vista, but a missing one should
+	// cost the latency win and fall back to polling, not panic every importer
+	// of this package at initialization.
+
+	// Places the given window in the system-maintained clipboard format
+	// listener list, which receives WM_CLIPBOARDUPDATE on every change.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-addclipboardformatlistener
+	addClipboardFormatListener = findProc(user32, "AddClipboardFormatListener")
+	// Removes the given window from the clipboard format listener list.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-removeclipboardformatlistener
+	removeClipboardFormatListener = findProc(user32, "RemoveClipboardFormatListener")
+	// Registers a window class for subsequent use in calls to CreateWindowEx.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerclassexw
+	registerClassExW = findProc(user32, "RegisterClassExW")
+	// Creates a window. With HWND_MESSAGE as the parent the window is
+	// message-only: invisible, and used purely to receive messages.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-createwindowexw
+	createWindowExW = findProc(user32, "CreateWindowExW")
+	// Destroys the given window.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-destroywindow
+	destroyWindow = findProc(user32, "DestroyWindow")
+	// Provides default processing for any window message a window procedure
+	// does not handle.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-defwindowprocw
+	defWindowProcW = findProc(user32, "DefWindowProcW")
+	// Retrieves a message from the calling thread's message queue, blocking
+	// until one arrives.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getmessagew
+	getMessageW = findProc(user32, "GetMessageW")
+	// Places a message in a window's message queue and returns without waiting.
+	// It is safe to call from another thread, which is how a watcher parked in
+	// GetMessageW is unparked on cancel.
+	// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postmessagew
+	postMessageW = findProc(user32, "PostMessageW")
+
 	kernel32 = syscall.NewLazyDLL("kernel32")
 
 	// Locks a global memory object and returns a pointer to the first
@@ -745,4 +1010,22 @@ var (
 	// bytes. Used to size reads of raw custom-format data.
 	// https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-globalsize
 	gSize = kernel32.NewProc("GlobalSize")
+	// Retrieves a module handle for the calling process; the window class the
+	// watcher registers is owned by it.
+	// https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew
+	getModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 )
+
+// findProc resolves an exported symbol, returning nil when it or its DLL is
+// absent. Unlike MustFindProc it lets an optional API degrade at the call site
+// rather than panicking during package initialization.
+func findProc(dll *syscall.DLL, name string) *syscall.Proc {
+	if dll == nil {
+		return nil
+	}
+	p, err := dll.FindProc(name)
+	if err != nil {
+		return nil
+	}
+	return p
+}
