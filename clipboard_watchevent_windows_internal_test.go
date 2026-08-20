@@ -6,7 +6,7 @@
 
 //go:build windows
 
-package clipboard_test
+package clipboard
 
 import (
 	"bytes"
@@ -14,8 +14,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"golang.design/x/clipboard"
 )
 
 // pollFloor is the interval the polling watcher ticks at. Event-driven delivery
@@ -37,23 +35,22 @@ const eventLatencyCeiling = 700 * time.Millisecond
 // to the watcher's message-only window and delivered immediately.
 //
 // It also covers the regression risk of that rewrite — that a listener firing on
-// every clipboard change, in any format, still delivers each watched value once
-// and in order.
+// every clipboard change, in any format, still delivers each watched value once.
 func TestWatchIsEventDriven(t *testing.T) {
-	if err := clipboard.Init(); err != nil {
+	if err := Init(); err != nil {
 		t.Skipf("clipboard unavailable: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ch := clipboard.Watch(ctx, clipboard.FmtText)
+	ch := Watch(ctx, FmtText)
 
 	for i := range 3 {
 		want := fmt.Appendf(nil, "event-driven-%d", i)
 
 		start := time.Now()
-		clipboard.Write(clipboard.FmtText, want)
+		Write(FmtText, want)
 
 		if err := awaitValue(ch, want); err != nil {
 			t.Fatalf("round %d: %v", i, err)
@@ -68,7 +65,7 @@ func TestWatchIsEventDriven(t *testing.T) {
 
 // awaitValue waits for want to arrive on ch, skipping any value left over from
 // an earlier round. It fails rather than hangs if the watch stops delivering.
-func awaitValue(ch <-chan clipboard.Data, want []byte) error {
+func awaitValue(ch <-chan Data, want []byte) error {
 	deadline := time.After(10 * time.Second)
 	for {
 		select {
@@ -81,6 +78,54 @@ func awaitValue(ch <-chan clipboard.Data, want []byte) error {
 			}
 		case <-deadline:
 			return fmt.Errorf("timed out waiting for %q", want)
+		}
+	}
+}
+
+// TestWatchPollIsSlowerThanTheEventCeiling pins the premise TestWatchIsEventDriven
+// rests on: that its latency ceiling actually tells the two implementations apart.
+//
+// It drives watchPoll — the fallback, and what watch did before #153 — and
+// asserts the same change it would measure arrives only after the ticker fires,
+// i.e. later than the ceiling the event-driven test enforces. If someone lowers
+// the poll interval to chase latency instead, this fails and says so, rather
+// than quietly turning the other test into a tautology.
+//
+// It doubles as coverage for the fallback itself, which nothing else exercises
+// on a Windows box where the message window comes up fine.
+func TestWatchPollIsSlowerThanTheEventCeiling(t *testing.T) {
+	if err := Init(); err != nil {
+		t.Skipf("clipboard unavailable: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recv := watchPoll(ctx, FmtText)
+
+	want := []byte("poll-fallback")
+	start := time.Now()
+	Write(FmtText, want)
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case got, ok := <-recv:
+			if !ok {
+				t.Fatal("watchPoll closed its channel before delivering the change")
+			}
+			if !bytes.Equal(got, want) {
+				continue // a change left over from an earlier test
+			}
+			if took := time.Since(start); took <= eventLatencyCeiling {
+				t.Fatalf("watchPoll observed the change after %v, within the %v "+
+					"ceiling TestWatchIsEventDriven uses to prove the watch is "+
+					"event-driven: that test can no longer tell polling from events",
+					took, eventLatencyCeiling)
+			}
+			return
+		case <-deadline:
+			t.Fatal("watchPoll never delivered the change")
 		}
 	}
 }
