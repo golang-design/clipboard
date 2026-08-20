@@ -45,6 +45,17 @@ format instead of using FmtImage; custom formats are raw passthrough:
 	jpg := clipboard.Register("image/jpeg")
 	clipboard.Write(jpg, jpegBytes)  // exact bytes, no conversion
 
+To publish several representations of the same content at once — plain text
+and HTML from one copy, so the destination takes whichever it understands
+best — use WriteAll. Calling Write twice does not do this: each write
+replaces the whole clipboard, so only the last format would survive.
+
+	html := clipboard.Register("text/html")
+	clipboard.WriteAll(
+		clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
+		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
+	)
+
 In addition, `clipboard.Write` returns a channel that can receive an
 empty struct as a signal, which indicates the corresponding write call
 to the clipboard is outdated, meaning the clipboard has been overwritten
@@ -236,13 +247,53 @@ func Read(t Format) []byte {
 // through unchanged. The clipboard therefore always serves PNG, regardless of
 // the input encoding.
 func Write(t Format, buf []byte) <-chan struct{} {
+	return WriteAll(Item{Format: t, Bytes: buf})
+}
+
+// Item is one representation of the content being copied: the format it is
+// encoded in, and the bytes in that encoding.
+type Item struct {
+	Format Format
+	Bytes  []byte
+}
+
+// WriteAll publishes several representations of the same content to the
+// clipboard in one operation, so a consuming application can take the richest
+// one it understands — plain text and HTML from a single copy, for instance:
+//
+//	html := clipboard.Register("text/html")
+//	clipboard.WriteAll(
+//		clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
+//		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
+//	)
+//
+// Order is preference, most preferred first: it is what tells the consumer
+// which representation to pick. A format that appears more than once keeps its
+// first occurrence, so earlier stays stronger. Items in FmtImage are normalized
+// to PNG exactly as Write normalizes its argument.
+//
+// The items replace the clipboard together — there is no moment at which only
+// some of them are on it — and calling Write for each format instead would not
+// do the same thing: every write replaces the whole clipboard, so only the last
+// one would survive.
+//
+// The returned channel behaves as Write's does: it receives a single empty
+// struct, and is then closed, only when the whole set is later replaced by
+// another writer. WriteAll returns nil if it is given no items, or if the write
+// fails.
+//
+// Multi-representation clipboards are a desktop feature. On iOS, Android and in
+// CGO-disabled builds only the most preferred item is published.
+func WriteAll(items ...Item) <-chan struct{} {
 	lock.Lock()
 	defer lock.Unlock()
 
-	if t == FmtImage {
-		buf = toPNG(buf)
+	items = normalizeItems(items)
+	if len(items) == 0 {
+		return nil
 	}
-	changed, err := write(t, buf)
+
+	changed, err := writeAll(items)
 	if err != nil {
 		if debug {
 			fmt.Fprintf(os.Stderr, "write to clipboard err: %v\n", err)
@@ -250,6 +301,25 @@ func Write(t Format, buf []byte) <-chan struct{} {
 		return nil
 	}
 	return changed
+}
+
+// normalizeItems drops the later duplicate of a format, keeping the caller's
+// order, and encodes every image item as PNG. It returns a new slice so a
+// caller's argument is never modified.
+func normalizeItems(items []Item) []Item {
+	out := make([]Item, 0, len(items))
+	seen := make(map[Format]bool, len(items))
+	for _, it := range items {
+		if seen[it.Format] {
+			continue
+		}
+		seen[it.Format] = true
+		if it.Format == FmtImage {
+			it.Bytes = toPNG(it.Bytes)
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // toPNG normalizes an FmtImage payload to canonical PNG: the clipboard stores

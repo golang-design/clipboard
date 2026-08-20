@@ -108,6 +108,9 @@ func writeFormatName(t *testing.T, name string, buf []byte) {
 		t.Fatalf("failed to open clipboard: %v", err)
 	}
 	defer closeClipboard.Call()
+	if err := clearClipboard(); err != nil {
+		t.Fatalf("failed to clear clipboard: %v", err)
+	}
 	if err := writeCustom(id, buf); err != nil {
 		t.Fatalf("failed to write format %q: %v", name, err)
 	}

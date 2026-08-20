@@ -210,28 +210,39 @@ func read(t Format) (buf []byte, err error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	var ok bool
-	switch t {
-	case FmtText:
-		if len(buf) == 0 {
-			ok = clipboard_write_string(nil)
-		} else {
-			ok = clipboard_write_string(buf)
+	return writeAll([]Item{{Format: t, Bytes: buf}})
+}
+
+// darwinItem is an Item resolved to the pasteboard type it is written under:
+// either one of the built-in type objects, or a name for a custom format, which
+// becomes an NSString inside the write's autorelease pool.
+type darwinItem struct {
+	typ  uintptr
+	name string
+	buf  []byte
+}
+
+// writeAll publishes every item on one clearContents generation, so the whole
+// set replaces the pasteboard together (#151). NSPasteboard is built for this:
+// a generation holds as many types as it is given, and a consumer picks the
+// first it understands.
+func writeAll(items []Item) (<-chan struct{}, error) {
+	out := make([]darwinItem, 0, len(items))
+	for _, it := range items {
+		switch it.Format {
+		case FmtText:
+			out = append(out, darwinItem{typ: _NSPasteboardTypeString, buf: it.Bytes})
+		case FmtImage:
+			out = append(out, darwinItem{typ: _NSPasteboardTypePNG, buf: it.Bytes})
+		default:
+			mime, found := formatMIME(it.Format)
+			if !found {
+				return nil, errUnsupported
+			}
+			out = append(out, darwinItem{name: darwinPasteboardTypes(mime)[0], buf: it.Bytes})
 		}
-	case FmtImage:
-		if len(buf) == 0 {
-			ok = clipboard_write_image(nil)
-		} else {
-			ok = clipboard_write_image(buf)
-		}
-	default:
-		mime, found := formatMIME(t)
-		if !found {
-			return nil, errUnsupported
-		}
-		ok = clipboard_write_custom(mime, buf)
 	}
-	if !ok {
+	if !clipboard_write_all(out) {
 		return nil, errUnavailable
 	}
 
@@ -333,22 +344,36 @@ func clipboard_read_image() []byte {
 	return buf.Bytes()
 }
 
-func clipboard_write_image(buf []byte) bool {
+// clipboard_write_all clears the pasteboard once and stores every item on that
+// one generation, in order — NSPasteboard treats the order types are set in as
+// the order a consumer should prefer them. It reports whether every item was
+// stored.
+func clipboard_write_all(items []darwinItem) bool {
 	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
-	runtime.KeepAlive(buf)
 	pasteboard.Send(sel_clearContents)
-	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypePNG) != 0
+	for _, it := range items {
+		typ := objc.ID(it.typ)
+		if typ == 0 {
+			typ = nsString(it.name)
+		}
+		if pasteboard.Send(sel_setDataForType, nsData(it.buf), typ) == 0 {
+			return false
+		}
+	}
+	return true
 }
 
-func clipboard_write_string(buf []byte) bool {
-	defer newAutoreleasePool()()
-	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
+// nsData wraps a byte slice in an autoreleased NSData. An empty slice is passed
+// as a NULL pointer, which dataWithBytes:length: accepts for a zero length.
+func nsData(buf []byte) objc.ID {
+	var p *byte
+	if len(buf) > 0 {
+		p = unsafe.SliceData(buf)
+	}
+	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, p, len(buf))
 	runtime.KeepAlive(buf)
-	pasteboard.Send(sel_clearContents)
-	return pasteboard.Send(sel_setDataForType, data, _NSPasteboardTypeString) != 0
+	return data
 }
 
 // nsString builds an autoreleased NSString from a Go string, used as a custom
@@ -381,10 +406,8 @@ func clipboard_read_custom(mime string) []byte {
 func clipboard_write_custom(mime string, buf []byte) bool {
 	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	data := objc.ID(class_NSData).Send(sel_dataWithBytesLength, unsafe.SliceData(buf), len(buf))
-	runtime.KeepAlive(buf)
 	pasteboard.Send(sel_clearContents)
-	return pasteboard.Send(sel_setDataForType, data, nsString(darwinPasteboardTypes(mime)[0])) != 0
+	return pasteboard.Send(sel_setDataForType, nsData(buf), nsString(darwinPasteboardTypes(mime)[0])) != 0
 }
 
 func clipboard_change_count() int {

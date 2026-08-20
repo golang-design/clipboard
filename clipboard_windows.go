@@ -67,11 +67,6 @@ func readText() (buf []byte, err error) {
 // responsibility for opening/closing the clipboard before calling
 // this function.
 func writeText(buf []byte) error {
-	r, _, err := emptyClipboard.Call()
-	if r == 0 {
-		return fmt.Errorf("failed to clear clipboard: %w", err)
-	}
-
 	// empty text, we are done here.
 	if len(buf) == 0 {
 		return nil
@@ -217,12 +212,7 @@ func bmpToPng(bmpBuf *bytes.Buffer) (buf []byte, err error) {
 }
 
 func writeImage(buf []byte) error {
-	r, _, err := emptyClipboard.Call()
-	if r == 0 {
-		return fmt.Errorf("failed to clear clipboard: %w", err)
-	}
-
-	// empty text, we are done here.
+	// empty image, we are done here.
 	if len(buf) == 0 {
 		return nil
 	}
@@ -345,6 +335,18 @@ func availableCustomFormat(mime string) (uintptr, error) {
 	return first, nil
 }
 
+// clearClipboard empties the clipboard and makes this process its owner, which
+// SetClipboardData requires. It runs once per write transaction, before any
+// format is set: emptying between two formats of the same write would discard
+// the one already set. The caller must have opened the clipboard.
+func clearClipboard() error {
+	r, _, err := emptyClipboard.Call()
+	if r == 0 {
+		return fmt.Errorf("failed to clear clipboard: %w", err)
+	}
+	return nil
+}
+
 // readCustom returns the raw bytes stored under the given clipboard format ID,
 // or nil if the handle is empty. The caller must have opened the clipboard.
 func readCustom(format uintptr) ([]byte, error) {
@@ -370,10 +372,6 @@ func readCustom(format uintptr) ([]byte, error) {
 // writeCustom stores buf verbatim under the given clipboard format ID with no
 // conversion (raw passthrough). The caller must have opened the clipboard.
 func writeCustom(format uintptr, buf []byte) error {
-	r, _, err := emptyClipboard.Call()
-	if r == 0 {
-		return fmt.Errorf("failed to clear clipboard: %w", err)
-	}
 	if len(buf) == 0 {
 		return nil
 	}
@@ -547,6 +545,36 @@ func read(t Format) (buf []byte, err error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
+	return writeAll([]Item{{Format: t, Bytes: buf}})
+}
+
+// writeItem sets one item's data on the already-opened, already-emptied
+// clipboard.
+func writeItem(it Item) error {
+	switch it.Format {
+	case FmtImage:
+		return writeImage(it.Bytes)
+	case FmtText:
+		return writeText(it.Bytes)
+	default:
+		mime, ok := formatMIME(it.Format)
+		if !ok {
+			return errUnsupported
+		}
+		id, err := registerCustomFormat(mime)
+		if err != nil {
+			return err
+		}
+		return writeCustom(id, it.Bytes)
+	}
+}
+
+// writeAll publishes every item inside one OpenClipboard/EmptyClipboard/
+// CloseClipboard transaction, which is what makes the set atomic: the clipboard
+// is emptied once, then each format is set on it, so no other application ever
+// observes a partial set (#151). Order is preserved, and Windows reports formats
+// in the order they were set, which is how a consumer knows what to prefer.
+func writeAll(items []Item) (<-chan struct{}, error) {
 	errch := make(chan error)
 	changed := make(chan struct{}, 1)
 	go func() {
@@ -559,34 +587,13 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			return
 		}
 
-		// var param uintptr
-		switch t {
-		case FmtImage:
-			err := writeImage(buf)
-			if err != nil {
-				errch <- err
-				closeClipboard.Call()
-				return
-			}
-		case FmtText:
-			err := writeText(buf)
-			if err != nil {
-				errch <- err
-				closeClipboard.Call()
-				return
-			}
-		default:
-			mime, ok := formatMIME(t)
-			if !ok {
-				errch <- errUnsupported
-				closeClipboard.Call()
-				return
-			}
-			id, err := registerCustomFormat(mime)
-			if err == nil {
-				err = writeCustom(id, buf)
-			}
-			if err != nil {
+		if err := clearClipboard(); err != nil {
+			errch <- err
+			closeClipboard.Call()
+			return
+		}
+		for _, it := range items {
+			if err := writeItem(it); err != nil {
 				errch <- err
 				closeClipboard.Call()
 				return

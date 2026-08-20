@@ -618,18 +618,47 @@ func wlConnectDevice() (w *wlConn, managerID, deviceID uint32, err error) {
 // when the selection is replaced (the source's cancelled event) or the
 // connection ends, matching the package Write contract.
 func wlWrite(t Format, data []byte) (<-chan struct{}, error) {
-	var mimes []string
+	return wlWriteAll([]Item{{Format: t, Bytes: data}})
+}
+
+// wlMIMEsFor returns the MIME types a format is advertised under. The built-ins
+// have several aliases each, all serving the same bytes.
+func wlMIMEsFor(t Format) ([]string, bool) {
 	switch t {
 	case FmtText:
-		mimes = textMIMEs
+		return textMIMEs, true
 	case FmtImage:
-		mimes = imageMIMEs
+		return imageMIMEs, true
 	default:
 		mime, ok := formatMIME(t)
 		if !ok {
+			return nil, false
+		}
+		return []string{mime}, true
+	}
+}
+
+// wlWriteAll offers every item's MIME types from a single data source and
+// serves whichever one a requestor names (#151). One source carries the whole
+// set, so the selection is replaced by all of them at once; a source per item
+// would instead have each set_selection cancel the last.
+func wlWriteAll(items []Item) (<-chan struct{}, error) {
+	var mimes []string
+	// data maps each advertised MIME type to the bytes to serve for it. The
+	// first item claiming a type keeps it, matching the caller's ordering.
+	data := make(map[string][]byte, len(items))
+	for _, it := range items {
+		ms, ok := wlMIMEsFor(it.Format)
+		if !ok {
 			return nil, errUnsupported
 		}
-		mimes = []string{mime}
+		for _, m := range ms {
+			if _, dup := data[m]; dup {
+				continue
+			}
+			data[m] = it.Bytes
+			mimes = append(mimes, m)
+		}
 	}
 
 	w, managerID, deviceID, err := wlConnectDevice()
@@ -720,10 +749,12 @@ func wlWrite(t Format, data []byte) (<-chan struct{}, error) {
 	return done, nil
 }
 
-// wlServeSend answers a data_source.send event by writing data to the fd the
-// requestor provided (received as ancillary data) and closing it.
-func wlServeSend(w *wlConn, body []byte, data []byte) {
-	_, _, _ = wlString(body, 0) // mime; we serve the same data for any type offered
+// wlServeSend answers a data_source.send event by writing the bytes offered for
+// the requested MIME type to the fd the requestor provided (received as
+// ancillary data) and closing it. An unoffered type gets an empty reply rather
+// than a leaked fd.
+func wlServeSend(w *wlConn, body []byte, data map[string][]byte) {
+	mime, _, _ := wlString(body, 0)
 	fd, ok := w.nextFd()
 	if !ok {
 		return
@@ -733,7 +764,9 @@ func wlServeSend(w *wlConn, body []byte, data []byte) {
 		syscall.Close(fd)
 		return
 	}
-	_, _ = f.Write(data)
+	if buf, ok := data[mime]; ok {
+		_, _ = f.Write(buf)
+	}
 	f.Close()
 }
 
