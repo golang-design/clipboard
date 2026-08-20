@@ -258,8 +258,15 @@ func TestClipboardWatch(t *testing.T) {
 	changed := clipboard.Watch(ctx, clipboard.FmtText)
 
 	want := []byte("golang.design/x/clipboard")
+	// The writer must be finished before this test returns. Cancelling the
+	// context only asks it to stop: it may already be inside Write, and that
+	// write would then land on the clipboard during whichever test runs next,
+	// which reads as a spurious clipboard change there.
+	written := make(chan struct{})
 	go func(ctx context.Context) {
+		defer close(written)
 		t := time.NewTicker(time.Millisecond * 500)
+		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -269,6 +276,10 @@ func TestClipboardWatch(t *testing.T) {
 			}
 		}
 	}(ctx)
+	defer func() {
+		cancel()
+		<-written
+	}()
 loop:
 	for {
 		select {
@@ -343,7 +354,11 @@ func TestClipboardWatchMultiFormat(t *testing.T) {
 	// platform watchers poll once per second, so alternate the two formats
 	// on a tick slower than that poll interval. Writing both back-to-back
 	// would let the second clobber the first before any watcher observes it.
+	// As in TestClipboardWatch, wait for the writer to actually be done rather
+	// than merely asked to stop, so a last write cannot leak into the next test.
+	written := make(chan struct{})
 	go func(ctx context.Context) {
+		defer close(written)
 		tk := time.NewTicker(time.Millisecond * 1300)
 		defer tk.Stop()
 		writeImage := false
@@ -361,6 +376,10 @@ func TestClipboardWatchMultiFormat(t *testing.T) {
 			}
 		}
 	}(ctx)
+	defer func() {
+		cancel()
+		<-written
+	}()
 
 	var sawText, sawImage bool
 	for !(sawText && sawImage) {
