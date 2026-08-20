@@ -83,6 +83,21 @@ The X11 and Wayland owner loops live in this repository — `serveSelection` in
 `clipboard_x11.go` and `wlServeSend` in `clipboard_wayland_linux.go` — so this
 needs no change to the `golang.design/x/x11` module.
 
+### The invariant that makes it atomic
+
+A transaction that empties the clipboard and *then* does failable work per item
+is not atomic: it can abort with the clipboard emptied and half filled, while
+the caller is told the write failed. So **everything that can fail for a reason
+other than running out of memory is resolved before the clipboard is opened or
+cleared** — the UTF-16 conversion, the PNG decode and DIB conversion, and the
+custom-format lookup and registration on Windows (`resolveItem`); the pasteboard
+types and `NSData` objects on macOS. What remains inside the transaction can only
+fail on allocation.
+
+This is the constraint to preserve. Moving any decode, lookup, or conversion back
+inside the loop reopens the window, and no test would notice: it only triggers on
+input that fails late, such as an undecodable image behind a decodable one.
+
 On the mobile and CGO-disabled backends, publishing only the first item is the
 honest degradation. Writing each item in turn would be worse than useless: each
 write replaces the last, so the *least* preferred representation would win,
@@ -99,10 +114,19 @@ add a second way to name a type.
 
 `TestWriteAll` (all desktop backends) publishes `text/html` and `FmtText`
 together and asserts **both** read back — which is the thing that cannot happen
-before this change, since the second `Write` would have dropped the first.
-`TestWriteAllOrderIsPreference` and `TestWriteAllNormalizesImages` cover
-duplicate-format precedence and per-item PNG normalization. `Write`'s existing
-suite covers the single-item path, which now runs through the same code.
+before this change, since the second `Write` would have dropped the first. It
+then asserts `Formats()` advertises both, which is a different code path on
+every backend and the only coverage of the rewritten X11 `TARGETS` reply:
+`x11Read` requests one target and never asks for the list.
+
+`TestWriteReplacesPreviousWrite` pins the premise the atomicity assertion rests
+on — that two `Write` calls lose the first — so it cannot quietly become a
+tautology. `TestWriteAllOrderIsPreference`, `TestWriteAllNormalizesImages` and
+`TestWriteAllNoItems` cover duplicate-format precedence, per-item PNG
+normalization, and the empty call. `TestWaylandWriteAll` checks the per-MIME
+payload cross-process with `wl-paste`, since a data-control client cannot
+observe its own selection. `Write`'s existing suite covers the single-item path,
+which now runs through the same code.
 
 ## 6. Scope
 
