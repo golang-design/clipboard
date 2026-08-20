@@ -111,6 +111,15 @@ Also on Linux/X11, only the CLIPBOARD selection (the Ctrl+C/Ctrl+V
 clipboard) is accessed; the PRIMARY selection (middle-click paste) is
 not supported.
 
+On Windows, a program running as a service does not share the logged-in
+user's clipboard. Services run in Session 0 on their own non-interactive
+window station, and a clipboard belongs to a window station: the service
+gets a working clipboard that nothing else can see, so Read and Write
+succeed among themselves while Watch never fires for anything the user
+copies. Init still reports success, because from the process's own point of
+view the clipboard is available. Run the clipboard work in a process inside
+the interactive session instead.
+
 Wayland sessions are supported natively: when WAYLAND_DISPLAY is set and
 the compositor exposes a data-control manager (ext-data-control-v1 or
 wlr-data-control-unstable-v1), Init selects the Wayland backend, which needs

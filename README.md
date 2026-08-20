@@ -248,6 +248,19 @@ accessing system clipboards, but here are a few details you might need to know.
   accepts PNG and normalizes other encodings to PNG when the matching decoder is
   registered (blank-import it, e.g. `_ "image/jpeg"`). Use a custom format
   (`Register`) for raw, unconverted bytes.
+- **Windows services (Session 0).** A Windows service runs in Session 0, on its
+  own non-interactive window station — and a clipboard belongs to a window
+  station, not to the machine. A service therefore gets a clipboard that works
+  but that nothing else can see: `Write` succeeds, `Read` returns what that same
+  service wrote, and `Watch` never fires for anything the logged-in user copies,
+  because the user's Ctrl+C lands on a different clipboard entirely. This is a
+  Windows design constraint, not something the package can work around; "Allow
+  service to interact with desktop" does not bridge it either, since that only
+  reaches Session 0's own desktop. Run the clipboard work in a process inside
+  the interactive session — a helper the service launches with
+  `CreateProcessAsUser` against the token from
+  `WTSQueryUserToken(WTSGetActiveConsoleSessionId())`, talking to the service
+  over IPC — rather than in the service itself.
 - **Wayland.** The native Wayland backend uses the data-control protocol,
   which works without keyboard focus. Compositors that do not implement
   `ext-data-control-v1` or `zwlr_data_control_manager_v1` (e.g. GNOME
