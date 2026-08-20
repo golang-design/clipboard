@@ -62,6 +62,25 @@ func TestWriteAll(t *testing.T) {
 	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, plain) {
 		t.Fatalf("Read(FmtText) = %q, want %q", got, plain)
 	}
+
+	// Reading each format proves the bytes are served; enumeration is a
+	// different code path on every backend — the TARGETS reply on X11,
+	// EnumClipboardFormats on Windows, the pasteboard's type list on macOS —
+	// and it is what a consumer uses to discover there is a richer option.
+	var sawHTML, sawText bool
+	formats := clipboard.Formats()
+	for _, f := range formats {
+		switch f {
+		case html:
+			sawHTML = true
+		case clipboard.FmtText:
+			sawText = true
+		}
+	}
+	if !sawHTML || !sawText {
+		t.Fatalf(`Formats() = %v, want it to advertise both the "text/html" token %v and FmtText`,
+			formats, html)
+	}
 }
 
 // TestWriteReplacesPreviousWrite states the behavior WriteAll exists to work

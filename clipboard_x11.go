@@ -432,11 +432,19 @@ func x11TargetFor(t Format) (string, bool) {
 // Linux and BSD backends.
 func x11WritePayloads(items []Item) (<-chan struct{}, error) {
 	payloads := make([]x11Payload, 0, len(items))
+	// Two different tokens can resolve to the same target — FmtImage and
+	// Register("image/png") are both image/png — and TARGETS should advertise
+	// each atom once. The earlier item keeps it, matching the caller's order.
+	seen := make(map[string]bool, len(items))
 	for _, it := range items {
 		target, ok := x11TargetFor(it.Format)
 		if !ok {
 			return nil, errUnsupported
 		}
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
 		payloads = append(payloads, x11Payload{target: target, buf: it.Bytes})
 	}
 	return x11WriteAll(payloads)

@@ -215,12 +215,22 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 
 // darwinItem is an Item resolved to the pasteboard type it is written under:
 // either one of the built-in type objects, or a name for a custom format, which
-// becomes an NSString inside the write's autorelease pool.
+// becomes an NSString inside the write's autorelease pool. uti names the type
+// either way, and is what two items are compared on.
 type darwinItem struct {
 	typ  uintptr
+	uti  string
 	name string
 	buf  []byte
 }
+
+// The UTIs behind the built-in pasteboard type constants, needed as plain
+// strings to notice that a custom format resolves to the same type — FmtImage
+// and Register("image/png") are both public.png.
+const (
+	utiPlainText = "public.utf8-plain-text"
+	utiPNG       = "public.png"
+)
 
 // writeAll publishes every item on one clearContents generation, so the whole
 // set replaces the pasteboard together (#151). NSPasteboard is built for this:
@@ -228,19 +238,30 @@ type darwinItem struct {
 // first it understands.
 func writeAll(items []Item) (<-chan struct{}, error) {
 	out := make([]darwinItem, 0, len(items))
+	// Two different tokens can resolve to the same pasteboard type, and a second
+	// store under a type would overwrite the first — inverting the rule that an
+	// earlier item wins. Drop the later one instead.
+	seen := make(map[string]bool, len(items))
 	for _, it := range items {
+		var d darwinItem
 		switch it.Format {
 		case FmtText:
-			out = append(out, darwinItem{typ: _NSPasteboardTypeString, buf: it.Bytes})
+			d = darwinItem{typ: _NSPasteboardTypeString, uti: utiPlainText, buf: it.Bytes}
 		case FmtImage:
-			out = append(out, darwinItem{typ: _NSPasteboardTypePNG, buf: it.Bytes})
+			d = darwinItem{typ: _NSPasteboardTypePNG, uti: utiPNG, buf: it.Bytes}
 		default:
 			mime, found := formatMIME(it.Format)
 			if !found {
 				return nil, errUnsupported
 			}
-			out = append(out, darwinItem{name: darwinPasteboardTypes(mime)[0], buf: it.Bytes})
+			name := darwinPasteboardTypes(mime)[0]
+			d = darwinItem{uti: name, name: name, buf: it.Bytes}
 		}
+		if seen[d.uti] {
+			continue
+		}
+		seen[d.uti] = true
+		out = append(out, d)
 	}
 	if !clipboard_write_all(out) {
 		return nil, errUnavailable
@@ -348,16 +369,29 @@ func clipboard_read_image() []byte {
 // one generation, in order — NSPasteboard treats the order types are set in as
 // the order a consumer should prefer them. It reports whether every item was
 // stored.
+//
+// The types and NSData objects are built before clearContents, so nothing
+// between the clear and the last store can fail for a reason other than the
+// store itself: the pasteboard is not left holding a partial set (#151).
+//
+// Callers pass items already deduplicated by pasteboard type (see writeAll).
 func clipboard_write_all(items []darwinItem) bool {
 	defer newAutoreleasePool()()
-	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
-	pasteboard.Send(sel_clearContents)
+
+	type entry struct{ typ, data objc.ID }
+	entries := make([]entry, 0, len(items))
 	for _, it := range items {
 		typ := objc.ID(it.typ)
 		if typ == 0 {
 			typ = nsString(it.name)
 		}
-		if pasteboard.Send(sel_setDataForType, nsData(it.buf), typ) == 0 {
+		entries = append(entries, entry{typ: typ, data: nsData(it.buf)})
+	}
+
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	pasteboard.Send(sel_clearContents)
+	for _, e := range entries {
+		if pasteboard.Send(sel_setDataForType, e.data, e.typ) == 0 {
 			return false
 		}
 	}

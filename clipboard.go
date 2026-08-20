@@ -269,8 +269,10 @@ type Item struct {
 //
 // Order is preference, most preferred first: it is what tells the consumer
 // which representation to pick. A format that appears more than once keeps its
-// first occurrence, so earlier stays stronger. Items in FmtImage are normalized
-// to PNG exactly as Write normalizes its argument.
+// first occurrence, so earlier stays stronger — as do two formats that name the
+// same native clipboard type, such as FmtImage and Register("image/png") on the
+// platforms where both mean the system's PNG type. Items in FmtImage are
+// normalized to PNG exactly as Write normalizes its argument.
 //
 // The items replace the clipboard together — there is no moment at which only
 // some of them are on it — and calling Write for each format instead would not
