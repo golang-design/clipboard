@@ -66,44 +66,47 @@ func readText() (buf []byte, err error) {
 // writeText writes given data to the clipboard. It is the caller's
 // responsibility for opening/closing the clipboard before calling
 // this function.
-func writeText(buf []byte) error {
-	r, _, err := emptyClipboard.Call()
-	if r == 0 {
-		return fmt.Errorf("failed to clear clipboard: %w", err)
-	}
-
-	// empty text, we are done here.
-	if len(buf) == 0 {
-		return nil
-	}
-
-	s, err := syscall.UTF16FromString(string(buf))
-	if err != nil {
-		return fmt.Errorf("failed to convert given string: %w", err)
-	}
-
-	hMem, _, err := gAlloc.Call(gmemMoveable, uintptr(len(s)*int(unsafe.Sizeof(s[0]))))
+// setClipboardBytes copies buf into a moveable global block and hands ownership
+// of it to the clipboard under the given format. The caller must have opened and
+// emptied the clipboard.
+//
+// This is the only part of a write that can fail once the transaction is open,
+// and only on allocation: everything decodable — the UTF-16 conversion, the PNG
+// decode, the custom-format registration — is resolved by resolveItem before the
+// clipboard is touched, so a multi-format write cannot leave a partial set
+// behind (#151).
+func setClipboardBytes(format uintptr, buf []byte) error {
+	hMem, _, err := gAlloc.Call(gmemMoveable, uintptr(len(buf)))
 	if hMem == 0 {
 		return fmt.Errorf("failed to alloc global memory: %w", err)
 	}
 
 	p, _, err := gLock.Call(hMem)
 	if p == 0 {
+		gFree.Call(hMem)
 		return fmt.Errorf("failed to lock global memory: %w", err)
 	}
 	defer gUnlock.Call(hMem)
 
 	// no return value
-	memMove.Call(p, uintptr(unsafe.Pointer(&s[0])),
-		uintptr(len(s)*int(unsafe.Sizeof(s[0]))))
+	memMove.Call(p, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 
-	v, _, err := setClipboardData.Call(cFmtUnicodeText, hMem)
+	v, _, err := setClipboardData.Call(format, hMem)
 	if v == 0 {
 		gFree.Call(hMem)
-		return fmt.Errorf("failed to set text to clipboard: %w", err)
+		return fmt.Errorf("failed to set data to clipboard: %w", err)
 	}
-
 	return nil
+}
+
+// utf16Bytes lays UTF-16 code units out as the little-endian bytes CF_UNICODETEXT
+// expects. Every Windows architecture Go targets is little-endian.
+func utf16Bytes(s []uint16) []byte {
+	out := make([]byte, len(s)*2)
+	for i, v := range s {
+		binary.LittleEndian.PutUint16(out[i*2:], v)
+	}
+	return out
 }
 
 // readImage reads the clipboard and returns PNG encoded image data
@@ -216,46 +219,50 @@ func bmpToPng(bmpBuf *bytes.Buffer) (buf []byte, err error) {
 	return f.Bytes(), nil
 }
 
-func writeImage(buf []byte) error {
-	r, _, err := emptyClipboard.Call()
-	if r == 0 {
-		return fmt.Errorf("failed to clear clipboard: %w", err)
+// windowsItem is an Item resolved to what the clipboard transaction will place:
+// the format id, and the exact bytes to store under it. An empty buf means the
+// format contributes nothing but the emptying, matching the previous behavior
+// for an empty payload.
+type windowsItem struct {
+	format uintptr
+	buf    []byte
+}
+
+// resolveItem does every part of a write that can fail for a reason other than
+// running out of memory — the UTF-16 conversion, the PNG decode and DIB
+// conversion, the custom-format lookup and registration — so that it happens
+// before the clipboard is opened. See setClipboardBytes.
+func resolveItem(it Item) (windowsItem, error) {
+	switch it.Format {
+	case FmtText:
+		if len(it.Bytes) == 0 {
+			return windowsItem{format: cFmtUnicodeText}, nil
+		}
+		s, err := syscall.UTF16FromString(string(it.Bytes))
+		if err != nil {
+			return windowsItem{}, fmt.Errorf("failed to convert given string: %w", err)
+		}
+		return windowsItem{format: cFmtUnicodeText, buf: utf16Bytes(s)}, nil
+	case FmtImage:
+		if len(it.Bytes) == 0 {
+			return windowsItem{format: cFmtDIBV5}, nil
+		}
+		img, err := png.Decode(bytes.NewReader(it.Bytes))
+		if err != nil {
+			return windowsItem{}, fmt.Errorf("input bytes is not PNG encoded: %w", err)
+		}
+		return windowsItem{format: cFmtDIBV5, buf: imageToDIB(img)}, nil
+	default:
+		mime, ok := formatMIME(it.Format)
+		if !ok {
+			return windowsItem{}, errUnsupported
+		}
+		id, err := registerCustomFormat(mime)
+		if err != nil {
+			return windowsItem{}, err
+		}
+		return windowsItem{format: id, buf: it.Bytes}, nil
 	}
-
-	// empty text, we are done here.
-	if len(buf) == 0 {
-		return nil
-	}
-
-	img, err := png.Decode(bytes.NewReader(buf))
-	if err != nil {
-		return fmt.Errorf("input bytes is not PNG encoded: %w", err)
-	}
-
-	data := imageToDIB(img)
-
-	hMem, _, err := gAlloc.Call(gmemMoveable,
-		uintptr(len(data)*int(unsafe.Sizeof(data[0]))))
-	if hMem == 0 {
-		return fmt.Errorf("failed to alloc global memory: %w", err)
-	}
-
-	p, _, err := gLock.Call(hMem)
-	if p == 0 {
-		return fmt.Errorf("failed to lock global memory: %w", err)
-	}
-	defer gUnlock.Call(hMem)
-
-	memMove.Call(p, uintptr(unsafe.Pointer(&data[0])),
-		uintptr(len(data)*int(unsafe.Sizeof(data[0]))))
-
-	v, _, err := setClipboardData.Call(cFmtDIBV5, hMem)
-	if v == 0 {
-		gFree.Call(hMem)
-		return fmt.Errorf("failed to set text to clipboard: %w", err)
-	}
-
-	return nil
 }
 
 // windowsNativeNames aliases a portable MIME type to the registered clipboard
@@ -345,6 +352,18 @@ func availableCustomFormat(mime string) (uintptr, error) {
 	return first, nil
 }
 
+// clearClipboard empties the clipboard and makes this process its owner, which
+// SetClipboardData requires. It runs once per write transaction, before any
+// format is set: emptying between two formats of the same write would discard
+// the one already set. The caller must have opened the clipboard.
+func clearClipboard() error {
+	r, _, err := emptyClipboard.Call()
+	if r == 0 {
+		return fmt.Errorf("failed to clear clipboard: %w", err)
+	}
+	return nil
+}
+
 // readCustom returns the raw bytes stored under the given clipboard format ID,
 // or nil if the handle is empty. The caller must have opened the clipboard.
 func readCustom(format uintptr) ([]byte, error) {
@@ -370,32 +389,10 @@ func readCustom(format uintptr) ([]byte, error) {
 // writeCustom stores buf verbatim under the given clipboard format ID with no
 // conversion (raw passthrough). The caller must have opened the clipboard.
 func writeCustom(format uintptr, buf []byte) error {
-	r, _, err := emptyClipboard.Call()
-	if r == 0 {
-		return fmt.Errorf("failed to clear clipboard: %w", err)
-	}
 	if len(buf) == 0 {
 		return nil
 	}
-
-	hMem, _, err := gAlloc.Call(gmemMoveable, uintptr(len(buf)))
-	if hMem == 0 {
-		return fmt.Errorf("failed to alloc global memory: %w", err)
-	}
-	p, _, err := gLock.Call(hMem)
-	if p == 0 {
-		return fmt.Errorf("failed to lock global memory: %w", err)
-	}
-	defer gUnlock.Call(hMem)
-
-	memMove.Call(p, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-
-	v, _, err := setClipboardData.Call(format, hMem)
-	if v == 0 {
-		gFree.Call(hMem)
-		return fmt.Errorf("failed to set custom data to clipboard: %w", err)
-	}
-	return nil
+	return setClipboardBytes(format, buf)
 }
 
 // enumerateFormats reports the formats currently on the clipboard by iterating
@@ -547,6 +544,28 @@ func read(t Format) (buf []byte, err error) {
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
 func write(t Format, buf []byte) (<-chan struct{}, error) {
+	return writeAll([]Item{{Format: t, Bytes: buf}})
+}
+
+// writeAll publishes every item inside one OpenClipboard/EmptyClipboard/
+// CloseClipboard transaction, which is what makes the set atomic: the clipboard
+// is emptied once, then each format is set on it, so no other application ever
+// observes a partial set (#151). Order is preserved, and Windows reports formats
+// in the order they were set, which is how a consumer knows what to prefer.
+//
+// Every item is resolved before the clipboard is opened, so a bad payload — an
+// undecodable image, a string with an interior NUL, an unregistered format —
+// fails with the clipboard untouched rather than emptied and half filled.
+func writeAll(items []Item) (<-chan struct{}, error) {
+	resolved := make([]windowsItem, 0, len(items))
+	for _, it := range items {
+		r, err := resolveItem(it)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, r)
+	}
+
 	errch := make(chan error)
 	changed := make(chan struct{}, 1)
 	go func() {
@@ -559,34 +578,16 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 			return
 		}
 
-		// var param uintptr
-		switch t {
-		case FmtImage:
-			err := writeImage(buf)
-			if err != nil {
-				errch <- err
-				closeClipboard.Call()
-				return
+		if err := clearClipboard(); err != nil {
+			errch <- err
+			closeClipboard.Call()
+			return
+		}
+		for _, r := range resolved {
+			if len(r.buf) == 0 {
+				continue // an empty payload contributes only the emptying
 			}
-		case FmtText:
-			err := writeText(buf)
-			if err != nil {
-				errch <- err
-				closeClipboard.Call()
-				return
-			}
-		default:
-			mime, ok := formatMIME(t)
-			if !ok {
-				errch <- errUnsupported
-				closeClipboard.Call()
-				return
-			}
-			id, err := registerCustomFormat(mime)
-			if err == nil {
-				err = writeCustom(id, buf)
-			}
-			if err != nil {
+			if err := setClipboardBytes(r.format, r.buf); err != nil {
 				errch <- err
 				closeClipboard.Call()
 				return

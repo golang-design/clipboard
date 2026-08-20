@@ -28,6 +28,14 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 	return nil, errNoCgo
 }
 
+// writeAll publishes the most preferred item only. This platform has no
+// multi-representation clipboard, and writing each item in turn would be worse
+// than useless: every write replaces the last, so the *least* preferred
+// representation would win — the reverse of what the caller asked for (#151).
+func writeAll(items []Item) (<-chan struct{}, error) {
+	return write(items[0].Format, items[0].Bytes)
+}
+
 func watch(ctx context.Context, t Format) <-chan []byte {
 	// The clipboard is unavailable in a CGO-disabled build. Return a
 	// closed channel so that receivers observe completion immediately

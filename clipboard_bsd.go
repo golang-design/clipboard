@@ -60,18 +60,11 @@ func read(t Format) (buf []byte, err error) {
 }
 
 func write(t Format, buf []byte) (<-chan struct{}, error) {
-	switch t {
-	case FmtText:
-		return x11Write("UTF8_STRING", buf)
-	case FmtImage:
-		return x11Write("image/png", buf)
-	default:
-		mime, ok := formatMIME(t)
-		if !ok {
-			return nil, errUnsupported
-		}
-		return x11Write(mime, buf)
-	}
+	return writeAll([]Item{{Format: t, Bytes: buf}})
+}
+
+func writeAll(items []Item) (<-chan struct{}, error) {
+	return x11WritePayloads(items)
 }
 
 func watch(ctx context.Context, t Format) <-chan []byte {

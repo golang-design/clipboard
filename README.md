@@ -13,7 +13,8 @@ import "golang.design/x/clipboard"
 - Copy/paste UTF-8 text
 - Copy/paste PNG-encoded images (Desktop-only); `Write` also accepts other encodings when their decoder is registered
 - Register and copy/paste custom MIME-typed formats (Desktop-only, raw passthrough)
-- Watch the clipboard for changes (event-driven on Wayland)
+- Publish several formats in one copy (`WriteAll`), e.g. `text/html` + `text/plain`
+- Watch the clipboard for changes (event-driven on Wayland and Windows)
 - Discover what's on the clipboard with `Formats()` / `Format.MIME` (Desktop-only)
 - Command `gclip` as a demo application
 - Mobile app `gclip-gui` as a demo application
@@ -68,6 +69,24 @@ case <-changed:
       println(`"text data" is no longer available from clipboard.`)
 }
 ```
+
+To publish several representations of the same content at once — the "copy
+rich text" behaviour, where the destination app takes the richest format it
+understands — use `WriteAll`. Order is preference, most preferred first:
+
+```go
+html := clipboard.Register("text/html")
+clipboard.WriteAll(
+      clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
+      clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
+)
+```
+
+Calling `Write` twice does *not* do this: every write replaces the whole
+clipboard, so only the last format would survive. `WriteAll` puts them all on
+in one transaction. It works on macOS, Windows, Linux/X11, BSD/X11 and
+Linux/Wayland; on iOS, Android and CGO-disabled builds only the most preferred
+item is published.
 
 You can ignore the returning channel if you don't need this type of
 notification. Furthermore, when you need more than just knowing whether

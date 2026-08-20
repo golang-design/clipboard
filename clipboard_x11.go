@@ -413,7 +413,66 @@ func x11FormatForTarget(name string) (Format, bool) {
 // x11Write takes ownership of the CLIPBOARD selection and serves its content to
 // requestors until ownership is lost (another writer overwrites it). The
 // returned channel is closed on that loss, matching the documented contract.
+// x11TargetFor returns the selection target atom name a format is served under.
+// On X11 a MIME type is used directly as the target atom, so only the built-ins
+// need translating.
+func x11TargetFor(t Format) (string, bool) {
+	switch t {
+	case FmtText:
+		return "UTF8_STRING", true
+	case FmtImage:
+		return "image/png", true
+	default:
+		return formatMIME(t)
+	}
+}
+
+// x11WritePayloads resolves items to their selection targets and takes
+// ownership serving all of them. It is the X11 half of writeAll, shared by the
+// Linux and BSD backends.
+func x11WritePayloads(items []Item) (<-chan struct{}, error) {
+	payloads := make([]x11Payload, 0, len(items))
+	// Two different tokens can resolve to the same target — FmtImage and
+	// Register("image/png") are both image/png — and TARGETS should advertise
+	// each atom once. The earlier item keeps it, matching the caller's order.
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		target, ok := x11TargetFor(it.Format)
+		if !ok {
+			return nil, errUnsupported
+		}
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		payloads = append(payloads, x11Payload{target: target, buf: it.Bytes})
+	}
+	return x11WriteAll(payloads)
+}
+
+// x11Target is one advertised selection target: the atom a requestor asks for,
+// and the bytes served in reply.
+type x11Target struct {
+	atom uint32
+	buf  []byte
+}
+
+// x11Payload is one representation to advertise, named by its target string.
+type x11Payload struct {
+	target string
+	buf    []byte
+}
+
 func x11Write(target string, buf []byte) (<-chan struct{}, error) {
+	return x11WriteAll([]x11Payload{{target: target, buf: buf}})
+}
+
+// x11WriteAll takes ownership of the CLIPBOARD selection once and serves every
+// payload from it, advertising them all through TARGETS (#151). X11 selection
+// ownership is inherently multi-target — a requestor names the target it wants —
+// so publishing several representations is one owner with a longer list, not
+// several owners racing for the selection.
+func x11WriteAll(payloads []x11Payload) (<-chan struct{}, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
@@ -421,10 +480,18 @@ func x11Write(target string, buf []byte) (<-chan struct{}, error) {
 
 	sel, e1 := x.intern("CLIPBOARD")
 	targets, e2 := x.intern("TARGETS")
-	tgt, e3 := x.intern(target)
-	if e1 != nil || e2 != nil || e3 != nil {
+	if e1 != nil || e2 != nil {
 		x.Close()
 		return nil, errUnavailable
+	}
+	tgts := make([]x11Target, 0, len(payloads))
+	for _, p := range payloads {
+		atom, err := x.intern(p.target)
+		if err != nil {
+			x.Close()
+			return nil, errUnavailable
+		}
+		tgts = append(tgts, x11Target{atom: atom, buf: p.buf})
 	}
 
 	if _, err := x.send(x11wire.SetSelectionOwner(x.win, sel, x11wire.CurrentTime)); err != nil {
@@ -445,7 +512,7 @@ func x11Write(target string, buf []byte) (<-chan struct{}, error) {
 	done := make(chan struct{}, 1)
 	go func() {
 		defer x.Close()
-		x.serveSelection(sel, targets, tgt, buf)
+		x.serveSelection(sel, targets, tgts)
 		done <- struct{}{}
 		close(done)
 	}()
@@ -454,7 +521,7 @@ func x11Write(target string, buf []byte) (<-chan struct{}, error) {
 
 // serveSelection runs the owner event loop, answering selection requests until
 // a SelectionClear (ownership lost) or a connection error.
-func (x *x11conn) serveSelection(sel, targets, tgt uint32, buf []byte) {
+func (x *x11conn) serveSelection(sel, targets uint32, tgts []x11Target) {
 	for {
 		p, err := x11wire.NextEvent(x.r)
 		if err != nil {
@@ -466,7 +533,7 @@ func (x *x11conn) serveSelection(sel, targets, tgt uint32, buf []byte) {
 		case x11wire.EventSelectionRequest:
 			req := p.SelectionRequest()
 			if req.Selection == sel {
-				x.answerSelectionRequest(req, targets, tgt, buf)
+				x.answerSelectionRequest(req, targets, tgts)
 			}
 		}
 	}
@@ -475,7 +542,7 @@ func (x *x11conn) serveSelection(sel, targets, tgt uint32, buf []byte) {
 // answerSelectionRequest replies to a single SelectionRequest: it serves the
 // data for our target, the supported list for TARGETS, or refuses otherwise,
 // then notifies the requestor.
-func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targets, tgt uint32, buf []byte) {
+func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targets uint32, tgts []x11Target) {
 	notify := x11wire.SelectionNotify{
 		Time:      req.Time,
 		Requestor: req.Requestor,
@@ -483,16 +550,30 @@ func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targ
 		Target:    req.Target,
 		Property:  req.Property,
 	}
-	switch req.Target {
-	case tgt:
-		x.send(x11wire.ChangeProperty(req.Requestor, req.Property, tgt, 8, buf))
-	case targets:
+	switch {
+	case req.Target == targets:
 		// Advertise the supported targets so correct clients re-request the
-		// data in a format we serve (#60).
+		// data in a format we serve (#60). They are listed in the order the
+		// caller gave them, which is the order to prefer them in.
+		atoms := make([]uint32, 0, len(tgts)+1)
+		atoms = append(atoms, targets)
+		for _, t := range tgts {
+			atoms = append(atoms, t.atom)
+		}
 		x.send(x11wire.ChangeProperty(req.Requestor, req.Property,
-			x11wire.AtomATOM, 32, x11wire.AtomList(targets, tgt)))
+			x11wire.AtomATOM, 32, x11wire.AtomList(atoms...)))
 	default:
-		notify.Property = x11wire.None // refuse unsupported target
+		served := false
+		for _, t := range tgts {
+			if req.Target == t.atom {
+				x.send(x11wire.ChangeProperty(req.Requestor, req.Property, t.atom, 8, t.buf))
+				served = true
+				break
+			}
+		}
+		if !served {
+			notify.Property = x11wire.None // refuse unsupported target
+		}
 	}
 	x.send(x11wire.SendSelectionNotify(notify))
 }
