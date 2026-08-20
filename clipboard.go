@@ -27,9 +27,23 @@ The most common operations are `Read` and `Write`. To use them:
 	clipboard.Write(clipboard.FmtImage, []byte("image data"))
 	clipboard.Read(clipboard.FmtImage)
 
-Note that read/write regarding image format assumes that the bytes are
-PNG encoded since it serves the alpha blending purpose that might be
-used in other graphical software.
+FmtImage is PNG: the clipboard serves images PNG-encoded because PNG
+carries an alpha channel, which other graphical software relies on.
+Read(FmtImage) therefore always returns PNG bytes. Write(FmtImage, ...)
+takes PNG as-is and normalizes other encodings to PNG when the program
+has registered the matching decoder, so a JPEG or WebP input still
+arrives on the clipboard as PNG:
+
+	import _ "image/jpeg" // register the decoder you feed Write
+
+	clipboard.Write(clipboard.FmtImage, jpegBytes) // stored as PNG
+
+To move image bytes that must not be transcoded — a JPEG that stays a
+JPEG, an SVG, a WebP, a camera raw — register that MIME type as a custom
+format instead of using FmtImage; custom formats are raw passthrough:
+
+	jpg := clipboard.Register("image/jpeg")
+	clipboard.Write(jpg, jpegBytes)  // exact bytes, no conversion
 
 In addition, `clipboard.Write` returns a channel that can receive an
 empty struct as a signal, which indicates the corresponding write call
@@ -95,8 +109,14 @@ rely on a clipboard manager.
 
 Also on Linux/X11, only the CLIPBOARD selection (the Ctrl+C/Ctrl+V
 clipboard) is accessed; the PRIMARY selection (middle-click paste) is
-not supported. Wayland sessions are not supported natively and require an
-XWayland bridge with DISPLAY set.
+not supported.
+
+Wayland sessions are supported natively: when WAYLAND_DISPLAY is set and
+the compositor exposes a data-control manager (ext-data-control-v1 or
+wlr-data-control-unstable-v1), Init selects the Wayland backend, which needs
+no X server. Otherwise the package falls back to X11 — under a compositor
+without data-control that means the XWayland bridge, as before. The PRIMARY
+selection is not exposed on Wayland either.
 */
 package clipboard // import "golang.design/x/clipboard"
 
@@ -124,9 +144,17 @@ type Format int
 
 // All sorts of supported clipboard data
 const (
-	// FmtText indicates plain text clipboard format
+	// FmtText indicates plain text clipboard format. Its bytes are UTF-8
+	// encoded in both directions.
 	FmtText Format = iota
-	// FmtImage indicates image/png clipboard format
+	// FmtImage indicates image/png clipboard format. It is PNG-only, not a
+	// generic "any image" format: Read returns PNG bytes, and Write encodes
+	// what it is given to PNG (see Write for which inputs it can decode).
+	//
+	// FmtImage is a transcoding format, so it is the wrong tool for bytes
+	// that must survive unchanged. To exchange another image encoding
+	// verbatim, register its MIME type as a custom format — Register("image/jpeg"),
+	// Register("image/svg+xml") — which is raw passthrough.
 	FmtImage
 )
 
@@ -164,6 +192,11 @@ func Init() error {
 
 // Read returns a chunk of bytes of the clipboard data if it presents
 // in the desired format t presents. Otherwise, it returns nil.
+//
+// The bytes are encoded the way the format defines: UTF-8 for FmtText and
+// PNG for FmtImage, whatever encoding the source application used. A custom
+// format registered with Register is raw passthrough, so Read returns its
+// bytes exactly as they sit on the clipboard.
 func Read(t Format) []byte {
 	lock.Lock()
 	defer lock.Unlock()

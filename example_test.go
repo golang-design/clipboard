@@ -54,3 +54,19 @@ func ExampleWatch() {
 	// Output:
 	// 你好，world
 }
+
+// ExampleRegister shows the escape hatch for bytes that must not be
+// transcoded. FmtImage is a PNG format, not a generic image format: it
+// re-encodes whatever it is given. A registered MIME type is raw passthrough,
+// so the exact bytes go on the clipboard and come back unchanged.
+//
+// Register needs no Init — it only allocates the token.
+func ExampleRegister() {
+	jpg := clipboard.Register("image/jpeg")
+
+	fmt.Println(clipboard.FmtImage.MIME()) // re-encoded to this, always
+	fmt.Println(jpg.MIME())                // exchanged verbatim
+	// Output:
+	// image/png
+	// image/jpeg
+}
