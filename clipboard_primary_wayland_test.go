@@ -36,10 +36,10 @@ func TestWaylandPrimarySelection(t *testing.T) {
 	onClipboard := []byte("copied with ctrl-c")
 	onPrimary := []byte("selected with the mouse")
 
-	if _, err := wlWriteAll(selClipboard, []Item{{Format: FmtText, Bytes: onClipboard}}); err != nil {
+	if _, err := wlWriteAll(selClipboard, []Item{{Format: FmtText, Bytes: onClipboard}}, 0); err != nil {
 		t.Fatalf("wlWriteAll(clipboard): %v", err)
 	}
-	if _, err := wlWriteAll(selPrimary, []Item{{Format: FmtText, Bytes: onPrimary}}); err != nil {
+	if _, err := wlWriteAll(selPrimary, []Item{{Format: FmtText, Bytes: onPrimary}}, 0); err != nil {
 		if errors.Is(err, errUnsupported) {
 			t.Skip("compositor's data-control manager predates the primary selection")
 		}

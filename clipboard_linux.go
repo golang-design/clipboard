@@ -73,15 +73,11 @@ func read(sel selection, t Format) (buf []byte, err error) {
 	return x11Read(sel, target)
 }
 
-func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
-	return writeAll(sel, []Item{{Format: t, Bytes: buf}})
-}
-
-func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+func writeAll(sel selection, items []Item, loops int) (<-chan struct{}, error) {
 	if useWayland {
-		return wlWriteAll(sel, items)
+		return wlWriteAll(sel, items, loops)
 	}
-	return x11WritePayloads(sel, items)
+	return x11WritePayloads(sel, items, loops)
 }
 
 func watch(ctx context.Context, sel selection, t Format) <-chan []byte {

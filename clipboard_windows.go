@@ -660,10 +660,6 @@ func read(sel selection, t Format) (buf []byte, err error) {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
-	return writeAll(sel, []Item{{Format: t, Bytes: buf}})
-}
-
 // writeAll publishes every item inside one OpenClipboard/EmptyClipboard/
 // CloseClipboard transaction, which is what makes the set atomic: the clipboard
 // is emptied once, then each format is set on it, so no other application ever
@@ -673,7 +669,10 @@ func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
 // Every item is resolved before the clipboard is opened, so a bad payload — an
 // undecodable image, a string with an interior NUL, an unregistered format —
 // fails with the clipboard untouched rather than emptied and half filled.
-func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+func writeAll(sel selection, items []Item, loops int) (<-chan struct{}, error) {
+	// loops is ignored: this platform's clipboard is a store the OS serves, so
+	// no paste request ever reaches this process to be counted (see Loops).
+	_ = loops
 	if sel == selPrimary {
 		// This platform has no primary selection. Refusing is deliberate:
 		// writing to the ordinary clipboard instead would destroy whatever the
