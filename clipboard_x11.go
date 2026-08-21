@@ -259,6 +259,22 @@ func x11Test() error {
 }
 
 // x11Read reads the CLIPBOARD selection in the given target format.
+// selectionOwned reports whether any client currently owns the selection. An
+// unowned selection has no one to answer a ConvertSelection, so the request is
+// simply never replied to; asking the server costs one round trip and turns a
+// read-deadline wait into an immediate empty result.
+func (x *x11conn) selectionOwned(selAtom uint32) (bool, error) {
+	seq, err := x.send(x11wire.GetSelectionOwner(selAtom))
+	if err != nil {
+		return false, err
+	}
+	p, err := x.reply(seq)
+	if err != nil {
+		return false, err
+	}
+	return p.SelectionOwner() != 0, nil
+}
+
 // x11SelectionAtom names the X11 selection a Format operation acts on. X11
 // selections are a general mechanism and CLIPBOARD is only one atom, so reaching
 // the primary selection is a matter of naming a different one — everything else,
@@ -271,6 +287,11 @@ func x11SelectionAtom(sel selection) string {
 }
 
 func x11Read(sel selection, target string) ([]byte, error) {
+	return x11ReadSelection(x11SelectionAtom(sel), target)
+}
+
+// x11ReadSelection reads one target from the named selection.
+func x11ReadSelection(selName, target string) ([]byte, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
@@ -278,11 +299,21 @@ func x11Read(sel selection, target string) ([]byte, error) {
 	defer x.Close()
 	x.c.SetReadDeadline(time.Now().Add(x11ReadTimeout))
 
-	selAtom, e1 := x.intern(x11SelectionAtom(sel))
+	selAtom, e1 := x.intern(selName)
 	prop, e2 := x.intern("GOLANG_DESIGN_DATA")
 	tgt, e3 := x.intern(target)
 	if e1 != nil || e2 != nil || e3 != nil {
 		return nil, errUnavailable
+	}
+
+	// A selection nobody owns answers nothing at all — the server sends no
+	// SelectionNotify — so a ConvertSelection would sit until the read deadline.
+	// That is the ordinary state of PRIMARY until the user selects something
+	// with the mouse, and of CLIPBOARD before anything is copied, so ask first.
+	if owned, err := x.selectionOwned(selAtom); err != nil {
+		return nil, errUnavailable
+	} else if !owned {
+		return nil, nil
 	}
 
 	if _, err := x.send(x11wire.ConvertSelection(x.win, selAtom, tgt, prop, x11wire.CurrentTime)); err != nil {
@@ -336,6 +367,11 @@ func (x *x11conn) atomName(atom uint32) (string, error) {
 // (via the TARGETS target), or nil if the clipboard is empty. The TARGETS
 // property is a list of 4-byte atom ids, each resolved back to its name.
 func x11Targets(sel selection) ([]string, error) {
+	return x11TargetsOf(x11SelectionAtom(sel))
+}
+
+// x11TargetsOf lists the targets the named selection advertises.
+func x11TargetsOf(selName string) ([]string, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
@@ -343,11 +379,19 @@ func x11Targets(sel selection) ([]string, error) {
 	defer x.Close()
 	x.c.SetReadDeadline(time.Now().Add(x11ReadTimeout))
 
-	selAtom, e1 := x.intern(x11SelectionAtom(sel))
+	selAtom, e1 := x.intern(selName)
 	prop, e2 := x.intern("GOLANG_DESIGN_DATA")
 	tgts, e3 := x.intern("TARGETS")
 	if e1 != nil || e2 != nil || e3 != nil {
 		return nil, errUnavailable
+	}
+
+	// As in x11ReadSelection: an unowned selection never answers, so enumerating
+	// one would block until the read deadline.
+	if owned, err := x.selectionOwned(selAtom); err != nil {
+		return nil, errUnavailable
+	} else if !owned {
+		return nil, nil
 	}
 
 	if _, err := x.send(x11wire.ConvertSelection(x.win, selAtom, tgts, prop, x11wire.CurrentTime)); err != nil {

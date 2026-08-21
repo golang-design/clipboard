@@ -392,6 +392,9 @@ func (i Item) apply(c *config) { c.items = append(c.items, i) }
 // platforms where both mean the system's PNG type. Items in FmtImage are
 // normalized to PNG exactly as Write normalizes its argument.
 //
+// A Format passed to WriteAll is ignored — it names a format with no bytes
+// attached. Pass Items, or use Write for a single format.
+//
 // The items replace the clipboard together — there is no moment at which only
 // some of them are on it — and calling Write for each format instead would not
 // do the same thing: every write replaces the whole clipboard, so only the last

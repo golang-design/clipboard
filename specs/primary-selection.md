@@ -147,6 +147,16 @@ and every polling watcher uses it, including on the platforms where the primary
 selection is refused earlier: relying on that early return to keep the call
 correct is how the bug comes back.
 
+An unowned selection was the other trap, and it is the *ordinary* state of
+PRIMARY: nobody owns it until the user selects something with the mouse. Such a
+selection never answers a `ConvertSelection` — the server sends no
+`SelectionNotify` at all — so the read sat until `x11ReadTimeout`, five seconds.
+`Watch` pays that synchronously before returning, so `Watch(ctx, FmtText,
+FromPrimary())` would have blocked for five seconds on any fresh session and
+again on every poll. `x11Read` and `x11Targets` now ask `GetSelectionOwner`
+first, one round trip, and return empty immediately when there is no owner.
+CLIPBOARD benefits too, before anything has been copied.
+
 `WriteFiles` changed shape from `(paths ...string)` to `(paths []string, opts
 ...Option)`. It shipped in #152 and is in no tag, so nothing depended on it, but
 it is the one call in the package that options could not be appended to — a
