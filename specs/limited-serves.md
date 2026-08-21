@@ -108,6 +108,35 @@ side.
 Implemented as designed. `answerSelectionRequest` now reports whether it served
 the data rather than the `TARGETS` list, which is what the X11 count keys on.
 
+**The last serve raced the connection close.** `serveSelection` answered the
+final request and returned, and returning closes the connection — with the
+`ChangeProperty` and `SelectionNotify` written to the socket but not necessarily
+processed by the server yet. Tearing the connection down loses them, so the
+requestor waited for a notify that never arrived: a read that hangs to its
+deadline rather than one that comes back empty. It is a race, so it hit whichever
+read tripped the limit, and only ever the last one — which is why `Loops(1)` was
+broken in the obvious case and `Loops(2)` was broken one read later.
+
+The owner now round-trips a request with a reply before returning, which forces
+the server to have processed everything sent before it. Reproduced and fixed
+against a real X server in the repository's own Docker image rather than through
+CI, after CI showed the same 5.00 s signature twice.
+
+**Every reader consumes a serve, including this program.** That is obvious in
+hindsight and was not obvious in the tests: `TestLoopsDropsAfterServing`
+originally used `FmtText`, and this package's own polling watchers read that
+format once a second. A watcher left over from an earlier test — cancelled but
+not yet exited, which `TestWatchNoGoroutineLeakOnCancel` explicitly tolerates —
+ate the single serve before the test's own read, which then timed out against a
+dying owner. It passed under CGO_ENABLED=1 and failed under CGO_ENABLED=0 purely
+on timing.
+
+The tests now use a private MIME type nothing else polls, and wait on the
+channel `Write` returns rather than polling for the drop — the channel fires
+exactly when the limit is reached and ownership is given up, so there is nothing
+to race. The godoc says the same thing to callers: a `Watch` running alongside a
+`Loops(1)` write will usually be the one that consumes it.
+
 One cleanup fell out: `write` on the darwin, Windows, X11 and Wayland backends
 had become dead once `Write` started going through `WriteAll` in #151, and it
 would otherwise have needed a `loops` parameter nothing passed. It is gone; the

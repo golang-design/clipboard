@@ -613,6 +613,15 @@ func (x *x11conn) serveSelection(sel, targets uint32, tgts []x11Target, loops in
 			if x.answerSelectionRequest(req, targets, tgts) && loops > 0 {
 				loops--
 				if loops == 0 {
+					// The reply to this last request has been written to the
+					// socket but not necessarily processed by the server, and
+					// returning here closes the connection. Round-trip first:
+					// tearing down the connection with the ChangeProperty and
+					// SelectionNotify still in flight loses them, and the
+					// requestor then waits for a notify that never comes —
+					// which is a read that hangs until its deadline rather
+					// than one that comes back empty.
+					x.roundTrip(sel)
 					return
 				}
 			}
@@ -623,6 +632,18 @@ func (x *x11conn) serveSelection(sel, targets uint32, tgts []x11Target, loops in
 // answerSelectionRequest replies to a single SelectionRequest: it serves the
 // data for our target, the supported list for TARGETS, or refuses otherwise,
 // then notifies the requestor.
+// roundTrip issues a request that has a reply and waits for it, so everything
+// sent before it has been processed by the server. Any events that arrive while
+// waiting are discarded, which is what x11conn.reply already does — acceptable
+// here because the caller is on its way out and has served its quota.
+func (x *x11conn) roundTrip(sel uint32) {
+	seq, err := x.send(x11wire.GetSelectionOwner(sel))
+	if err != nil {
+		return
+	}
+	x.reply(seq)
+}
+
 // answerSelectionRequest replies to one SelectionRequest and reports whether it
 // served the data itself, as opposed to the TARGETS list or a refusal.
 func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targets uint32, tgts []x11Target) bool {

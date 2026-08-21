@@ -43,12 +43,20 @@ func loopsReady(t *testing.T) {
 	}
 }
 
+// loopsFormat is a private format for the serve-limit tests. It must not be one
+// this package's own watchers poll: a Watch on FmtText reads the clipboard once
+// a second, and every read consumes a serve, so a watcher still winding down
+// from an earlier test can eat the one serve under test before the test does.
+// That is what made this flaky under CGO_ENABLED=0 — the timing shifted enough
+// for a cancelled-but-not-yet-exited watcher to get there first.
+var loopsFormat = clipboard.Register("application/x.golang-design.clipboard-loops")
+
 // TestLoopsDropsAfterServing is the point of #22: data written with Loops(1) is
 // pastable once and then gone, so a secret does not sit on the clipboard until
 // something else replaces it.
 //
-// Without the limit the owner keeps answering requests forever and the second
-// read returns the data again, so this fails on exactly the behavior being added.
+// Without the limit the owner keeps answering requests forever, so the data
+// stays readable and the write's channel never reports it gone.
 func TestLoopsDropsAfterServing(t *testing.T) {
 	loopsReady(t)
 	if !ownerServed() {
@@ -56,27 +64,27 @@ func TestLoopsDropsAfterServing(t *testing.T) {
 	}
 
 	secret := []byte("pasted once, then gone")
-	if ch := clipboard.Write(clipboard.FmtText, secret, clipboard.Loops(1)); ch == nil {
+	dropped := clipboard.Write(loopsFormat, secret, clipboard.Loops(1))
+	if dropped == nil {
 		t.Fatal("Write with Loops reported failure")
 	}
 
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, secret) {
-		t.Fatalf("first Read(FmtText) = %q, want %q: the one allowed serve must work", got, secret)
+	if got := clipboard.Read(loopsFormat); !bytes.Equal(got, secret) {
+		t.Fatalf("first Read = %q, want %q: the one allowed serve must work", got, secret)
 	}
 
-	// Ownership is dropped by the serving goroutine once it has served enough,
-	// which the reader observes as the selection going away.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		got := clipboard.Read(clipboard.FmtText)
-		if !bytes.Equal(got, secret) {
-			return // dropped, as asked
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("Read(FmtText) still returns %q after the single allowed serve: "+
-				"Loops(1) did not drop the data", got)
-		}
-		time.Sleep(50 * time.Millisecond)
+	// Wait for the drop rather than polling for it: the channel Write returns
+	// fires when the data is no longer available, which for a serve-limited
+	// write is exactly when the limit is reached and ownership is given up.
+	select {
+	case <-dropped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the write never reported its data gone after the single allowed serve")
+	}
+
+	if got := clipboard.Read(loopsFormat); bytes.Equal(got, secret) {
+		t.Fatalf("Read still returns %q after the single allowed serve: "+
+			"Loops(1) did not drop the data", got)
 	}
 }
 
@@ -89,10 +97,10 @@ func TestLoopsUnlimitedByDefault(t *testing.T) {
 	}
 
 	want := []byte("stays put")
-	clipboard.Write(clipboard.FmtText, want, clipboard.Loops(0))
+	clipboard.Write(loopsFormat, want, clipboard.Loops(0))
 
 	for i := range 3 {
-		if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, want) {
+		if got := clipboard.Read(loopsFormat); !bytes.Equal(got, want) {
 			t.Fatalf("read %d = %q, want %q: Loops(0) means unlimited", i, got, want)
 		}
 	}
