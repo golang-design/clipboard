@@ -40,7 +40,7 @@ func TestWaylandFormatsEnumerate(t *testing.T) {
 	// Call the Wayland enumeration directly (like the other wl* tests): the
 	// public enumerateFormats() routes on useWayland, which is only set by
 	// Init() and unset in this unit test.
-	fs := wlEnumerateFormats()
+	fs := wlEnumerateFormats(selClipboard)
 	found := false
 	for _, f := range fs {
 		if f == want {

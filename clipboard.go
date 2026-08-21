@@ -48,7 +48,7 @@ format instead of using FmtImage; custom formats are raw passthrough:
 To copy or paste files — what a file manager puts on the clipboard when you
 press Ctrl+C on a selection — use WriteFiles and ReadFiles:
 
-	clipboard.WriteFiles("/home/me/report.pdf", "/home/me/notes.txt")
+	clipboard.WriteFiles([]string{"/home/me/report.pdf", "/home/me/notes.txt"})
 
 	for _, path := range clipboard.ReadFiles() {
 		println(path)
@@ -68,6 +68,17 @@ replaces the whole clipboard, so only the last format would survive.
 		clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
 		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
 	)
+
+On X11 and Wayland there are two clipboards. The primary selection holds
+whatever was last selected with the mouse and is pasted with the middle
+button, independently of the Ctrl+C clipboard. Reach it with FromPrimary,
+which every operation accepts:
+
+	sel := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary())
+	ch := clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
+
+Windows and macOS have no second clipboard, so there a primary read returns
+nil and a primary write is a no-op rather than touching the clipboard.
 
 In addition, `clipboard.Write` returns a channel that can receive an
 empty struct as a signal, which indicates the corresponding write call
@@ -131,9 +142,9 @@ data available after your program exits, keep the process running (the
 channel returned by Write reports when the data is no longer needed) or
 rely on a clipboard manager.
 
-Also on Linux/X11, only the CLIPBOARD selection (the Ctrl+C/Ctrl+V
-clipboard) is accessed; the PRIMARY selection (middle-click paste) is
-not supported.
+Both X11 selections are reachable: the CLIPBOARD one by default, and PRIMARY
+(middle-click paste) with FromPrimary. SECONDARY is not exposed, since
+nothing uses it.
 
 On Windows, a program running as a service does not share the logged-in
 user's clipboard. Services run in Session 0 on their own non-interactive
@@ -148,8 +159,9 @@ Wayland sessions are supported natively: when WAYLAND_DISPLAY is set and
 the compositor exposes a data-control manager (ext-data-control-v1 or
 wlr-data-control-unstable-v1), Init selects the Wayland backend, which needs
 no X server. Otherwise the package falls back to X11 — under a compositor
-without data-control that means the XWayland bridge, as before. The PRIMARY
-selection is not exposed on Wayland either.
+without data-control that means the XWayland bridge, as before. FromPrimary
+needs version 2 of the data-control manager, which is where the primary
+selection was added; under an older one a primary read returns nil.
 */
 package clipboard // import "golang.design/x/clipboard"
 
@@ -172,8 +184,75 @@ var (
 	errNoCgo       = errors.New("clipboard: cannot use when CGO_ENABLED=0")
 )
 
+// Option configures a clipboard operation. Format and Item are Options too, so
+// one variadic argument list carries both what an operation acts on and how:
+//
+//	clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
+//
+// That is why Option is an interface rather than a function type — Watch and
+// WriteAll had already spent their variadic slot on Format and Item, and Go
+// allows only one.
+type Option interface {
+	apply(*config)
+}
+
+// config is what a call's options add up to.
+type config struct {
+	// sel is the clipboard to act on: the ordinary one unless FromPrimary was
+	// given. It is passed to the backend rather than kept in a global, so one
+	// call cannot change which clipboard another is reading.
+	sel selection
+	// formats and items collect the Format and Item options, in the order the
+	// caller gave them.
+	formats []Format
+	items   []Item
+}
+
+// selection names one of the two clipboards X11 and Wayland provide.
+type selection int
+
+const (
+	// selClipboard is the Ctrl+C/Ctrl+V clipboard, and the only one on
+	// platforms with a single clipboard.
+	selClipboard selection = iota
+	// selPrimary is the X11/Wayland primary selection: whatever was last
+	// selected with the mouse, pasted with the middle button.
+	selPrimary
+)
+
+// optionFunc adapts a plain function to Option.
+type optionFunc func(*config)
+
+func (o optionFunc) apply(c *config) { o(c) }
+
+// FromPrimary directs the operation at the primary selection instead of the
+// clipboard. On X11 and Wayland these are two independent clipboards: the
+// primary selection holds whatever was last selected with the mouse and is
+// pasted with the middle button, and copying does not disturb it.
+//
+//	sel := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary())
+//
+// The primary selection exists only on X11 and Wayland. Elsewhere — Windows,
+// macOS, iOS, Android, CGO-disabled builds — a read returns nil and a write is
+// a no-op. A write is deliberately not redirected to the ordinary clipboard:
+// that would destroy whatever the user had copied.
+func FromPrimary() Option { return optionFunc(func(c *config) { c.sel = selPrimary }) }
+
+// newConfig folds the options into a config.
+func newConfig(opts []Option) *config {
+	c := &config{}
+	for _, o := range opts {
+		o.apply(c)
+	}
+	return c
+}
+
 // Format represents the format of clipboard data.
 type Format int
+
+// apply lets a Format be passed wherever an Option is taken, so Watch and
+// WriteAll can accept formats and options in the same argument list.
+func (f Format) apply(c *config) { c.formats = append(c.formats, f) }
 
 // All sorts of supported clipboard data
 const (
@@ -239,15 +318,17 @@ func Init() error {
 // Read returns a chunk of bytes of the clipboard data if it presents
 // in the desired format t presents. Otherwise, it returns nil.
 //
+// Pass FromPrimary to read the primary selection instead of the clipboard.
+//
 // The bytes are encoded the way the format defines: UTF-8 for FmtText and
 // PNG for FmtImage, whatever encoding the source application used. A custom
 // format registered with Register is raw passthrough, so Read returns its
 // bytes exactly as they sit on the clipboard.
-func Read(t Format) []byte {
+func Read(t Format, opts ...Option) []byte {
 	lock.Lock()
 	defer lock.Unlock()
 
-	buf, err := read(t)
+	buf, err := read(newConfig(opts).sel, t)
 	if err != nil {
 		if debug {
 			fmt.Fprintf(os.Stderr, "read clipboard err: %v\n", err)
@@ -272,8 +353,8 @@ func Read(t Format) []byte {
 // _ "image/jpeg" or _ "golang.org/x/image/webp"), and undecodable input passes
 // through unchanged. The clipboard therefore always serves PNG, regardless of
 // the input encoding.
-func Write(t Format, buf []byte) <-chan struct{} {
-	return WriteAll(Item{Format: t, Bytes: buf})
+func Write(t Format, buf []byte, opts ...Option) <-chan struct{} {
+	return WriteAll(append([]Option{Item{Format: t, Bytes: buf}}, opts...)...)
 }
 
 // Item is one representation of the content being copied: the format it is
@@ -282,6 +363,10 @@ type Item struct {
 	Format Format
 	Bytes  []byte
 }
+
+// apply lets an Item be passed wherever an Option is taken, so WriteAll can
+// accept items and options in the same argument list.
+func (i Item) apply(c *config) { c.items = append(c.items, i) }
 
 // WriteAll publishes several representations of the same content to the
 // clipboard in one operation, so a consuming application can take the richest
@@ -312,16 +397,19 @@ type Item struct {
 //
 // Multi-representation clipboards are a desktop feature. On iOS, Android and in
 // CGO-disabled builds only the most preferred item is published.
-func WriteAll(items ...Item) <-chan struct{} {
+//
+// Pass FromPrimary to publish to the primary selection instead.
+func WriteAll(opts ...Option) <-chan struct{} {
 	lock.Lock()
 	defer lock.Unlock()
 
-	items = normalizeItems(items)
+	c := newConfig(opts)
+	items := normalizeItems(c.items)
 	if len(items) == 0 {
 		return nil
 	}
 
-	changed, err := writeAll(items)
+	changed, err := writeAll(c.sel, items)
 	if err != nil {
 		if debug {
 			fmt.Fprintf(os.Stderr, "write to clipboard err: %v\n", err)
@@ -387,8 +475,8 @@ func toPNG(buf []byte) []byte {
 // A URI that does not name a local file — a remote one, or a path this platform
 // cannot express — is skipped rather than guessed at, so the result can be
 // shorter than what the clipboard holds.
-func ReadFiles() []string {
-	buf := Read(FmtFiles)
+func ReadFiles(opts ...Option) []string {
+	buf := Read(FmtFiles, opts...)
 	if buf == nil {
 		return nil
 	}
@@ -402,8 +490,11 @@ func ReadFiles() []string {
 // It is Write(FmtFiles, ...) over a text/uri-list body, so it replaces the
 // clipboard and returns the same channel Write does. To publish a file list
 // alongside another format, use WriteAll with an FmtFiles item.
-func WriteFiles(paths ...string) <-chan struct{} {
-	return Write(FmtFiles, uriListFromPaths(paths))
+//
+// It takes a slice rather than variadic paths because a string cannot be an
+// Option without swallowing every stray string argument; the options follow.
+func WriteFiles(paths []string, opts ...Option) <-chan struct{} {
+	return Write(FmtFiles, uriListFromPaths(paths), opts...)
 }
 
 // Data is a single observed clipboard change: the format the change was
@@ -420,8 +511,12 @@ type Data struct {
 // single Watch call can observe multiple formats at once. If no format is
 // given, all built-in formats (FmtText, FmtImage and FmtFiles) are observed.
 //
+// Pass FromPrimary to watch the primary selection instead of the clipboard.
+//
 // The returned channel will be closed once the given context is canceled.
-func Watch(ctx context.Context, t ...Format) <-chan Data {
+func Watch(ctx context.Context, opts ...Option) <-chan Data {
+	c := newConfig(opts)
+	t := c.formats
 	if len(t) == 0 {
 		t = []Format{FmtText, FmtImage, FmtFiles}
 	}
@@ -429,7 +524,7 @@ func Watch(ctx context.Context, t ...Format) <-chan Data {
 	out := make(chan Data)
 	var wg sync.WaitGroup
 	for _, f := range t {
-		in := watch(ctx, f)
+		in := watch(ctx, c.sel, f)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

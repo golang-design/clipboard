@@ -91,13 +91,15 @@ func (f Format) MIME() string {
 // discovered on the clipboard are registered on demand, so every returned token
 // can be passed straight to Read (and its identity inspected with Format.MIME).
 //
+// Pass FromPrimary to enumerate the primary selection instead.
+//
 // It returns an empty slice when the clipboard is empty or unavailable — for
 // example on iOS/Android or in a CGO-disabled build, where it degrades like the
 // rest of the API rather than panicking.
-func Formats() []Format {
+func Formats(opts ...Option) []Format {
 	lock.Lock()
 	defer lock.Unlock()
-	return normalizeFormats(enumerateFormats())
+	return normalizeFormats(enumerateFormats(newConfig(opts).sel))
 }
 
 // normalizeFormats de-duplicates tokens and returns them in a stable order: the
@@ -135,9 +137,9 @@ func normalizeFormats(in []Format) []Format {
 // have to erase every decode function to any. It is also the seam where an
 // error-returning, capability-aware read path can grow without changing the
 // byte-oriented Read.
-func ReadAs[T any](f Format, decode func([]byte) (T, error)) (T, error) {
+func ReadAs[T any](f Format, decode func([]byte) (T, error), opts ...Option) (T, error) {
 	var zero T
-	buf := Read(f)
+	buf := Read(f, opts...)
 	if buf == nil {
 		return zero, ErrNoData
 	}
