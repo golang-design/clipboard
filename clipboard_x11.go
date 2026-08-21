@@ -498,7 +498,7 @@ func x11TargetFor(t Format) (string, bool) {
 // x11WritePayloads resolves items to their selection targets and takes
 // ownership serving all of them. It is the X11 half of writeAll, shared by the
 // Linux and BSD backends.
-func x11WritePayloads(sel selection, items []Item) (<-chan struct{}, error) {
+func x11WritePayloads(sel selection, items []Item, loops int) (<-chan struct{}, error) {
 	payloads := make([]x11Payload, 0, len(items))
 	// Two different tokens can resolve to the same target — FmtImage and
 	// Register("image/png") are both image/png — and TARGETS should advertise
@@ -515,7 +515,7 @@ func x11WritePayloads(sel selection, items []Item) (<-chan struct{}, error) {
 		seen[target] = true
 		payloads = append(payloads, x11Payload{target: target, buf: it.Bytes})
 	}
-	return x11WriteAll(sel, payloads)
+	return x11WriteAll(sel, payloads, loops)
 }
 
 // x11Target is one advertised selection target: the atom a requestor asks for,
@@ -532,7 +532,7 @@ type x11Payload struct {
 }
 
 func x11Write(sel selection, target string, buf []byte) (<-chan struct{}, error) {
-	return x11WriteAll(sel, []x11Payload{{target: target, buf: buf}})
+	return x11WriteAll(sel, []x11Payload{{target: target, buf: buf}}, 0)
 }
 
 // x11WriteAll takes ownership of the CLIPBOARD selection once and serves every
@@ -540,7 +540,7 @@ func x11Write(sel selection, target string, buf []byte) (<-chan struct{}, error)
 // ownership is inherently multi-target — a requestor names the target it wants —
 // so publishing several representations is one owner with a longer list, not
 // several owners racing for the selection.
-func x11WriteAll(sel selection, payloads []x11Payload) (<-chan struct{}, error) {
+func x11WriteAll(sel selection, payloads []x11Payload, loops int) (<-chan struct{}, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
@@ -580,7 +580,7 @@ func x11WriteAll(sel selection, payloads []x11Payload) (<-chan struct{}, error) 
 	done := make(chan struct{}, 1)
 	go func() {
 		defer x.Close()
-		x.serveSelection(selAtom, targets, tgts)
+		x.serveSelection(selAtom, targets, tgts, loops)
 		done <- struct{}{}
 		close(done)
 	}()
@@ -589,7 +589,14 @@ func x11WriteAll(sel selection, payloads []x11Payload) (<-chan struct{}, error) 
 
 // serveSelection runs the owner event loop, answering selection requests until
 // a SelectionClear (ownership lost) or a connection error.
-func (x *x11conn) serveSelection(sel, targets uint32, tgts []x11Target) {
+// serveSelection runs the owner event loop, answering selection requests until
+// a SelectionClear (ownership lost) or a connection error.
+//
+// When loops is positive it also stops after serving the data that many times,
+// dropping ownership so the content is no longer pastable (#22). A request for
+// TARGETS does not count: a normal paste asks what is available and then asks
+// for one of those, so counting metadata would make Loops(1) serve nothing.
+func (x *x11conn) serveSelection(sel, targets uint32, tgts []x11Target, loops int) {
 	for {
 		p, err := x11wire.NextEvent(x.r)
 		if err != nil {
@@ -600,8 +607,14 @@ func (x *x11conn) serveSelection(sel, targets uint32, tgts []x11Target) {
 			return
 		case x11wire.EventSelectionRequest:
 			req := p.SelectionRequest()
-			if req.Selection == sel {
-				x.answerSelectionRequest(req, targets, tgts)
+			if req.Selection != sel {
+				continue
+			}
+			if x.answerSelectionRequest(req, targets, tgts) && loops > 0 {
+				loops--
+				if loops == 0 {
+					return
+				}
 			}
 		}
 	}
@@ -610,7 +623,9 @@ func (x *x11conn) serveSelection(sel, targets uint32, tgts []x11Target) {
 // answerSelectionRequest replies to a single SelectionRequest: it serves the
 // data for our target, the supported list for TARGETS, or refuses otherwise,
 // then notifies the requestor.
-func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targets uint32, tgts []x11Target) {
+// answerSelectionRequest replies to one SelectionRequest and reports whether it
+// served the data itself, as opposed to the TARGETS list or a refusal.
+func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targets uint32, tgts []x11Target) bool {
 	notify := x11wire.SelectionNotify{
 		Time:      req.Time,
 		Requestor: req.Requestor,
@@ -618,6 +633,7 @@ func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targ
 		Target:    req.Target,
 		Property:  req.Property,
 	}
+	served := false
 	switch {
 	case req.Target == targets:
 		// Advertise the supported targets so correct clients re-request the
@@ -631,7 +647,6 @@ func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targ
 		x.send(x11wire.ChangeProperty(req.Requestor, req.Property,
 			x11wire.AtomATOM, 32, x11wire.AtomList(atoms...)))
 	default:
-		served := false
 		for _, t := range tgts {
 			if req.Target == t.atom {
 				x.send(x11wire.ChangeProperty(req.Requestor, req.Property, t.atom, 8, t.buf))
@@ -644,4 +659,5 @@ func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targ
 		}
 	}
 	x.send(x11wire.SendSelectionNotify(notify))
+	return served
 }

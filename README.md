@@ -15,6 +15,7 @@ import "golang.design/x/clipboard"
 - Register and copy/paste custom MIME-typed formats (Desktop-only, raw passthrough)
 - Copy/paste files (`FmtFiles`), the way a file manager does
 - Read, write and watch the X11/Wayland primary (middle-click) selection
+- Limit how many times a write is served before it is dropped (X11/Wayland)
 - Publish several formats in one copy (`WriteAll`), e.g. `text/html` + `text/plain`
 - Watch the clipboard for changes (event-driven on Wayland and Windows)
 - Discover what's on the clipboard with `Formats()` / `Format.MIME` (Desktop-only)
@@ -85,6 +86,21 @@ ch := clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
 
 Windows and macOS have no second clipboard, so a primary read returns `nil` and
 a primary write is a no-op there.
+
+`Loops(n)` limits how many times the written data is handed to a pasting
+application before it is dropped — putting a secret on the clipboard and having
+it disappear once pasted:
+
+```go
+clipboard.Write(clipboard.FmtText, password, clipboard.Loops(1))
+```
+
+**It works on X11 and Wayland only**, and is silently ignored on Windows, macOS
+and mobile, so it is *not* a way to clear a secret from a Windows or macOS
+clipboard. The difference is in the platforms: on X11 and Wayland the writer owns
+the selection and personally answers each paste request, so it can count them and
+give up ownership, whereas a Windows or macOS write copies the bytes into an
+OS-owned store and never hears about them again.
 
 To copy or paste **files** — what a file manager puts on the clipboard when you
 press Ctrl+C on a selection — use `WriteFiles` and `ReadFiles`:

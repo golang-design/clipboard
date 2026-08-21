@@ -97,7 +97,10 @@ func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
 // multi-representation clipboard, and writing each item in turn would be worse
 // than useless: every write replaces the last, so the *least* preferred
 // representation would win — the reverse of what the caller asked for (#151).
-func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+func writeAll(sel selection, items []Item, loops int) (<-chan struct{}, error) {
+	// loops is ignored: this platform's clipboard is a store the OS serves, so
+	// no paste request ever reaches this process to be counted (see Loops).
+	_ = loops
 	return write(sel, items[0].Format, items[0].Bytes)
 }
 

@@ -206,6 +206,9 @@ type config struct {
 	// caller gave them.
 	formats []Format
 	items   []Item
+	// loops limits how many times a write is served before the data is
+	// dropped; zero means unlimited.
+	loops int
 }
 
 // selection names one of the two clipboards X11 and Wayland provide.
@@ -244,6 +247,29 @@ func FromPrimary() Option { return optionFunc(func(c *config) { c.sel = selPrima
 // poll the ordinary clipboard while claiming to watch the primary selection,
 // and deliver the wrong clipboard's data.
 func withSelection(sel selection) Option { return optionFunc(func(c *config) { c.sel = sel }) }
+
+// Loops limits how many times the written data is handed to a pasting
+// application before it is dropped from the clipboard. It is how you put a
+// secret on the clipboard and have it disappear once it has been pasted:
+//
+//	clipboard.Write(clipboard.FmtText, password, clipboard.Loops(1))
+//
+// Read this part first: Loops works on X11 and Wayland only, and is silently
+// ignored on Windows, macOS, iOS, Android and in CGO-disabled builds. It is
+// therefore not a way to clear a secret from a Windows or macOS clipboard —
+// there the data stays until something else replaces it.
+//
+// The difference is in the platforms, not in this package. On X11 and Wayland a
+// writer owns the selection and personally answers every paste request, so it
+// can count them and give up ownership. On Windows and macOS a write copies the
+// bytes into an OS-owned store and returns; no request ever comes back to this
+// process, so there is nothing to count and nothing to withdraw.
+//
+// A serve is one delivery of the data to a requestor, not one paste: an
+// application that asks for several formats in one paste consumes one loop per
+// format. Asking which formats are available does not consume any. A count of
+// zero or less means unlimited, which is the default.
+func Loops(n int) Option { return optionFunc(func(c *config) { c.loops = n }) }
 
 // newConfig folds the options into a config.
 func newConfig(opts []Option) *config {
@@ -408,7 +434,8 @@ func (i Item) apply(c *config) { c.items = append(c.items, i) }
 // Multi-representation clipboards are a desktop feature. On iOS, Android and in
 // CGO-disabled builds only the most preferred item is published.
 //
-// Pass FromPrimary to publish to the primary selection instead.
+// Pass FromPrimary to publish to the primary selection instead, or Loops to
+// limit how many times the set is served.
 func WriteAll(opts ...Option) <-chan struct{} {
 	lock.Lock()
 	defer lock.Unlock()
@@ -419,7 +446,7 @@ func WriteAll(opts ...Option) <-chan struct{} {
 		return nil
 	}
 
-	changed, err := writeAll(c.sel, items)
+	changed, err := writeAll(c.sel, items, c.loops)
 	if err != nil {
 		if debug {
 			fmt.Fprintf(os.Stderr, "write to clipboard err: %v\n", err)

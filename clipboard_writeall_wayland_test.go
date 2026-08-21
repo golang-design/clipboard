@@ -38,7 +38,7 @@ func TestWaylandWriteAll(t *testing.T) {
 	if _, err := wlWriteAll(selClipboard, []Item{
 		{Format: Register(mime), Bytes: rawCustom},
 		{Format: FmtText, Bytes: plain},
-	}); err != nil {
+	}, 0); err != nil {
 		t.Fatalf("wlWriteAll: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)

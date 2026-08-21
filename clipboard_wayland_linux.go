@@ -680,7 +680,7 @@ func (w *wlConn) supportsPrimary() bool { return w.dataControlVersion >= dataCon
 // when the selection is replaced (the source's cancelled event) or the
 // connection ends, matching the package Write contract.
 func wlWrite(sel selection, t Format, data []byte) (<-chan struct{}, error) {
-	return wlWriteAll(sel, []Item{{Format: t, Bytes: data}})
+	return wlWriteAll(sel, []Item{{Format: t, Bytes: data}}, 0)
 }
 
 // wlMIMEsFor returns the MIME types a format is advertised under. The built-ins
@@ -706,7 +706,7 @@ func wlMIMEsFor(t Format) ([]string, bool) {
 // serves whichever one a requestor names (#151). One source carries the whole
 // set, so the selection is replaced by all of them at once; a source per item
 // would instead have each set_selection cancel the last.
-func wlWriteAll(sel selection, items []Item) (<-chan struct{}, error) {
+func wlWriteAll(sel selection, items []Item, loops int) (<-chan struct{}, error) {
 	var mimes []string
 	// data maps each advertised MIME type to the bytes to serve for it. The
 	// first item claiming a type keeps it, matching the caller's ordering.
@@ -776,6 +776,18 @@ func wlWriteAll(sel selection, items []Item) (<-chan struct{}, error) {
 		// A send may already arrive before the sync barrier; serve it.
 		if obj == sourceID && op == srcEvtSend {
 			wlServeSend(w, body, data)
+			if loops > 0 {
+				loops--
+				if loops == 0 {
+					// Served enough: closing drops the source, which clears
+					// the selection (#22).
+					w.Close()
+					done := make(chan struct{}, 1)
+					done <- struct{}{}
+					close(done)
+					return done, nil
+				}
+			}
 		}
 		if obj == sourceID && op == srcEvtCancelled {
 			// Replaced immediately; deliver the overwrite signal and close.
@@ -809,6 +821,14 @@ func wlWriteAll(sel selection, items []Item) (<-chan struct{}, error) {
 				return
 			case obj == sourceID && op == srcEvtSend:
 				wlServeSend(w, body, data)
+				if loops > 0 {
+					loops--
+					if loops == 0 {
+						// Served enough: the deferred Close drops the source,
+						// which clears the selection (#22).
+						return
+					}
+				}
 			case obj == sourceID && op == srcEvtCancelled:
 				return
 			}
