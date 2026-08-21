@@ -8,6 +8,7 @@ package clipboard_test
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg" // also registers the JPEG decoder WriteAll normalizes through
@@ -49,17 +50,17 @@ func TestWriteAll(t *testing.T) {
 	markup := []byte("<b>hi</b>")
 	plain := []byte("hi")
 
-	if ch := clipboard.WriteAll(
+	if ch, _ := clipboard.WriteAll(context.TODO(),
 		clipboard.Item{Format: html, Bytes: markup},
 		clipboard.Item{Format: clipboard.FmtText, Bytes: plain},
 	); ch == nil {
 		t.Fatal("WriteAll reported failure")
 	}
 
-	if got := clipboard.Read(html); !bytes.Equal(got, markup) {
+	if got, _ := clipboard.Read(context.TODO(), html); !bytes.Equal(got, markup) {
 		t.Fatalf(`Read(Register("text/html")) = %q, want %q`, got, markup)
 	}
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, plain) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, plain) {
 		t.Fatalf("Read(FmtText) = %q, want %q", got, plain)
 	}
 
@@ -68,7 +69,7 @@ func TestWriteAll(t *testing.T) {
 	// EnumClipboardFormats on Windows, the pasteboard's type list on macOS —
 	// and it is what a consumer uses to discover there is a richer option.
 	var sawHTML, sawText bool
-	formats := clipboard.Formats()
+	formats, _ := clipboard.Formats(context.TODO())
 	for _, f := range formats {
 		switch f {
 		case html:
@@ -91,14 +92,14 @@ func TestWriteReplacesPreviousWrite(t *testing.T) {
 	writeAllReady(t)
 
 	html := clipboard.Register("text/html")
-	clipboard.Write(html, []byte("<b>dropped</b>"))
-	clipboard.Write(clipboard.FmtText, []byte("survives"))
+	clipboard.Write(context.TODO(), html, []byte("<b>dropped</b>"))
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte("survives"))
 
-	if got := clipboard.Read(html); got != nil {
+	if got, _ := clipboard.Read(context.TODO(), html); got != nil {
 		t.Fatalf(`Read(Register("text/html")) = %q after a later Write, want nil: `+
 			`a single Write is supposed to replace the whole clipboard`, got)
 	}
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, []byte("survives")) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, []byte("survives")) {
 		t.Fatalf("Read(FmtText) = %q, want %q", got, "survives")
 	}
 }
@@ -109,12 +110,12 @@ func TestWriteReplacesPreviousWrite(t *testing.T) {
 func TestWriteAllOrderIsPreference(t *testing.T) {
 	writeAllReady(t)
 
-	clipboard.WriteAll(
+	clipboard.WriteAll(context.TODO(),
 		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("preferred")},
 		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("ignored")},
 	)
 
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, []byte("preferred")) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, []byte("preferred")) {
 		t.Fatalf("Read(FmtText) = %q, want %q (the earlier item wins)", got, "preferred")
 	}
 }
@@ -136,17 +137,17 @@ func TestWriteAllNormalizesImages(t *testing.T) {
 	}
 
 	plain := []byte("a picture")
-	clipboard.WriteAll(
+	clipboard.WriteAll(context.TODO(),
 		clipboard.Item{Format: clipboard.FmtImage, Bytes: jbuf.Bytes()},
 		clipboard.Item{Format: clipboard.FmtText, Bytes: plain},
 	)
 
-	got := clipboard.Read(clipboard.FmtImage)
+	got, _ := clipboard.Read(context.TODO(), clipboard.FmtImage)
 	if len(got) < 8 || !bytes.Equal(got[:8], []byte("\x89PNG\r\n\x1a\n")) {
 		t.Fatalf("Read(FmtImage) did not return PNG-encoded bytes (got %d bytes, prefix %v)",
 			len(got), got[:min(8, len(got))])
 	}
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, plain) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, plain) {
 		t.Fatalf("Read(FmtText) = %q, want %q", got, plain)
 	}
 }
@@ -157,12 +158,12 @@ func TestWriteAllNoItems(t *testing.T) {
 	writeAllReady(t)
 
 	kept := []byte("keep me")
-	clipboard.Write(clipboard.FmtText, kept)
+	clipboard.Write(context.TODO(), clipboard.FmtText, kept)
 
-	if ch := clipboard.WriteAll(); ch != nil {
+	if ch, _ := clipboard.WriteAll(context.TODO()); ch != nil {
 		t.Fatal("WriteAll() with no items returned a channel, want nil")
 	}
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, kept) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, kept) {
 		t.Fatalf("Read(FmtText) = %q after WriteAll(), want the clipboard untouched (%q)", got, kept)
 	}
 }

@@ -8,6 +8,7 @@ package clipboard_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"runtime"
 	"testing"
@@ -64,12 +65,12 @@ func TestLoopsDropsAfterServing(t *testing.T) {
 	}
 
 	secret := []byte("pasted once, then gone")
-	dropped := clipboard.Write(loopsFormat, secret, clipboard.Loops(1))
+	dropped, _ := clipboard.Write(context.TODO(), loopsFormat, secret, clipboard.Loops(1))
 	if dropped == nil {
 		t.Fatal("Write with Loops reported failure")
 	}
 
-	if got := clipboard.Read(loopsFormat); !bytes.Equal(got, secret) {
+	if got, _ := clipboard.Read(context.TODO(), loopsFormat); !bytes.Equal(got, secret) {
 		t.Fatalf("first Read = %q, want %q: the one allowed serve must work", got, secret)
 	}
 
@@ -82,7 +83,7 @@ func TestLoopsDropsAfterServing(t *testing.T) {
 		t.Fatal("the write never reported its data gone after the single allowed serve")
 	}
 
-	if got := clipboard.Read(loopsFormat); bytes.Equal(got, secret) {
+	if got, _ := clipboard.Read(context.TODO(), loopsFormat); bytes.Equal(got, secret) {
 		t.Fatalf("Read still returns %q after the single allowed serve: "+
 			"Loops(1) did not drop the data", got)
 	}
@@ -97,10 +98,10 @@ func TestLoopsUnlimitedByDefault(t *testing.T) {
 	}
 
 	want := []byte("stays put")
-	clipboard.Write(loopsFormat, want, clipboard.Loops(0))
+	clipboard.Write(context.TODO(), loopsFormat, want, clipboard.Loops(0))
 
 	for i := range 3 {
-		if got := clipboard.Read(loopsFormat); !bytes.Equal(got, want) {
+		if got, _ := clipboard.Read(context.TODO(), loopsFormat); !bytes.Equal(got, want) {
 			t.Fatalf("read %d = %q, want %q: Loops(0) means unlimited", i, got, want)
 		}
 	}
@@ -117,11 +118,11 @@ func TestLoopsIgnoredWhereUnsupported(t *testing.T) {
 	}
 
 	want := []byte("stays until replaced")
-	if ch := clipboard.Write(clipboard.FmtText, want, clipboard.Loops(1)); ch == nil {
+	if ch, _ := clipboard.Write(context.TODO(), clipboard.FmtText, want, clipboard.Loops(1)); ch == nil {
 		t.Fatal("Write with Loops failed; it should succeed and ignore the limit")
 	}
 	for i := range 3 {
-		if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, want) {
+		if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, want) {
 			t.Fatalf("read %d = %q, want %q: Loops is a no-op here, not a delete", i, got, want)
 		}
 	}

@@ -37,18 +37,60 @@ if err != nil {
 }
 ```
 
+## Migrating to v0.9.0
+
+v0.9.0 changes every call that moves bytes to take a `context.Context` and return
+an `error`. This is a breaking change; the package is pre-1.0, so it arrives as a
+minor version rather than a new import path.
+
+Why it is worth the churn: `Read` used to return `nil` for *every* failure, so
+you could not tell an empty clipboard from a missing X server — the package even
+carried an internal debug flag whose only job was printing that difference to
+stderr. And a read had no way to be bounded: on X11 it could sit for five
+seconds with no way for you to say otherwise.
+
+| before | after |
+|---|---|
+| `b := clipboard.Read(f)` | `b, err := clipboard.Read(ctx, f)` |
+| `ch := clipboard.Write(f, b)` | `ch, err := clipboard.Write(ctx, f, b)` |
+| `ch := clipboard.WriteAll(items...)` | `ch, err := clipboard.WriteAll(ctx, items...)` |
+| `fs := clipboard.Formats()` | `fs, err := clipboard.Formats(ctx)` |
+| `p := clipboard.ReadFiles()` | `p, err := clipboard.ReadFiles(ctx)` |
+| `clipboard.WriteFiles(paths)` | `clipboard.WriteFiles(ctx, paths)` |
+| `clipboard.ReadAs(f, dec)` | `clipboard.ReadAs(ctx, f, dec)` |
+
+`Watch` is unchanged — it already took a context.
+
+Passing `context.TODO()` everywhere is a correct first step, and code that
+ignored failures before can keep doing so with `_`. When you do want the error,
+three sentinels tell the cases apart:
+
+```go
+b, err := clipboard.Read(ctx, clipboard.FmtImage)
+switch {
+case errors.Is(err, clipboard.ErrNoData):      // nothing to paste
+case errors.Is(err, clipboard.ErrUnavailable): // no clipboard to reach
+case errors.Is(err, clipboard.ErrUnsupported): // not possible on this platform
+}
+```
+
+The context is honored as far as each platform allows: every backend checks it
+before starting, and X11 applies your deadline to the wire read, capped by the
+package's own ceiling. Elsewhere the calls are effectively immediate, so the
+entry check is the whole of it — promising more would be a lie.
+
 The most common operations are `Read` and `Write`. To use them:
 
 ```go
 // write/read text format data of the clipboard, and
 // the byte buffer regarding the text are UTF8 encoded.
-clipboard.Write(clipboard.FmtText, []byte("text data"))
-clipboard.Read(clipboard.FmtText)
+clipboard.Write(ctx, clipboard.FmtText, []byte("text data"))
+clipboard.Read(ctx, clipboard.FmtText)
 
 // write/read image format data of the clipboard, and
 // the byte buffer regarding the image are PNG encoded.
-clipboard.Write(clipboard.FmtImage, []byte("image data"))
-clipboard.Read(clipboard.FmtImage)
+clipboard.Write(ctx, clipboard.FmtImage, []byte("image data"))
+clipboard.Read(ctx, clipboard.FmtImage)
 ```
 
 Note that the clipboard serves images as PNG (it serves the alpha-blending
@@ -65,7 +107,7 @@ to the clipboard is outdated, meaning the clipboard has been overwritten
 by others and the previously written data is lost. For instance:
 
 ```go
-changed := clipboard.Write(clipboard.FmtText, []byte("text data"))
+changed := clipboard.Write(ctx, clipboard.FmtText, []byte("text data"))
 
 select {
 case <-changed:
@@ -79,8 +121,8 @@ is pasted with the middle button. `FromPrimary()` reaches the second one, and
 every operation accepts it:
 
 ```go
-sel := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary())
-clipboard.Write(clipboard.FmtText, []byte("hi"), clipboard.FromPrimary())
+sel, _ := clipboard.Read(ctx, clipboard.FmtText, clipboard.FromPrimary())
+clipboard.Write(ctx, clipboard.FmtText, []byte("hi"), clipboard.FromPrimary())
 ch := clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
 ```
 
@@ -92,7 +134,7 @@ application before it is dropped — putting a secret on the clipboard and havin
 it disappear once pasted:
 
 ```go
-clipboard.Write(clipboard.FmtText, password, clipboard.Loops(1))
+clipboard.Write(ctx, clipboard.FmtText, password, clipboard.Loops(1))
 ```
 
 **It works on X11 and Wayland only**, and is silently ignored on Windows, macOS
@@ -106,9 +148,10 @@ To copy or paste **files** — what a file manager puts on the clipboard when yo
 press Ctrl+C on a selection — use `WriteFiles` and `ReadFiles`:
 
 ```go
-clipboard.WriteFiles([]string{"/home/me/report.pdf", "/home/me/notes.txt"})
+clipboard.WriteFiles(ctx, []string{"/home/me/report.pdf", "/home/me/notes.txt"})
 
-for _, path := range clipboard.ReadFiles() {
+paths, _ := clipboard.ReadFiles(ctx)
+for _, path := range paths {
       println(path)
 }
 ```
@@ -128,7 +171,7 @@ understands — use `WriteAll`. Order is preference, most preferred first:
 
 ```go
 html := clipboard.Register("text/html")
-clipboard.WriteAll(
+clipboard.WriteAll(ctx,
       clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
       clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
 )
@@ -177,11 +220,11 @@ idempotent and safe to call before `Init`:
 
 ```go
 html := clipboard.Register("text/html")
-clipboard.Write(html, []byte("<b>hi</b>"))
-b := clipboard.Read(html)
+clipboard.Write(ctx, html, []byte("<b>hi</b>"))
+b, _ := clipboard.Read(ctx, html)
 
 // Or decode into a typed value with ReadAs:
-doc, err := clipboard.ReadAs(html, func(b []byte) (*Node, error) {
+doc, err := clipboard.ReadAs(ctx, html, func(b []byte) (*Node, error) {
       return parseHTML(b)
 })
 ```
@@ -210,7 +253,8 @@ available formats (registering any custom MIME types it finds on demand), and
 `Format.MIME` reports a token's identity:
 
 ```go
-for _, f := range clipboard.Formats() {
+formats, _ := clipboard.Formats(ctx)
+for _, f := range formats {
       switch f {
       case clipboard.FmtText:
             println("text")

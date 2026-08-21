@@ -7,6 +7,7 @@
 package clipboard
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"sync"
@@ -96,10 +97,14 @@ func (f Format) MIME() string {
 // It returns an empty slice when the clipboard is empty or unavailable — for
 // example on iOS/Android or in a CGO-disabled build, where it degrades like the
 // rest of the API rather than panicking.
-func Formats(opts ...Option) []Format {
+func Formats(ctx context.Context, opts ...Option) ([]Format, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	lock.Lock()
 	defer lock.Unlock()
-	return normalizeFormats(enumerateFormats(newConfig(opts).sel))
+	return normalizeFormats(enumerateFormats(ctx, newConfig(opts).sel)), nil
 }
 
 // normalizeFormats de-duplicates tokens and returns them in a stable order: the
@@ -137,11 +142,11 @@ func normalizeFormats(in []Format) []Format {
 // have to erase every decode function to any. It is also the seam where an
 // error-returning, capability-aware read path can grow without changing the
 // byte-oriented Read.
-func ReadAs[T any](f Format, decode func([]byte) (T, error), opts ...Option) (T, error) {
+func ReadAs[T any](ctx context.Context, f Format, decode func([]byte) (T, error), opts ...Option) (T, error) {
 	var zero T
-	buf := Read(f, opts...)
-	if buf == nil {
-		return zero, ErrNoData
+	buf, err := Read(ctx, f, opts...)
+	if err != nil {
+		return zero, err
 	}
 	return decode(buf)
 }

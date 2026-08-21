@@ -7,6 +7,7 @@
 package clipboard_test
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func enumerateRoundTrip(t *testing.T) {
 	}
 
 	// A built-in format is reported after it is written.
-	clipboard.Write(clipboard.FmtText, []byte("enumerate-text"))
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte("enumerate-text"))
 	if fs := waitForFormat(clipboard.FmtText); !containsFormat(fs, clipboard.FmtText) {
 		t.Fatalf("Formats() after writing FmtText = %v, want it to include FmtText", fs)
 	}
@@ -36,7 +37,7 @@ func enumerateRoundTrip(t *testing.T) {
 	// A custom MIME type is discovered and reported, and the returned token
 	// carries its MIME identity.
 	html := clipboard.Register("text/html")
-	clipboard.Write(html, []byte("<b>enumerate</b>"))
+	clipboard.Write(context.TODO(), html, []byte("<b>enumerate</b>"))
 	fs := waitForFormat(html)
 	if !containsFormat(fs, html) {
 		t.Fatalf("Formats() after writing text/html = %v, want it to include the html token", fs)
@@ -61,7 +62,7 @@ func containsFormat(fs []clipboard.Format, want clipboard.Format) bool {
 func waitForFormat(want clipboard.Format) []clipboard.Format {
 	var fs []clipboard.Format
 	for i := 0; i < 50; i++ {
-		if fs = clipboard.Formats(); containsFormat(fs, want) {
+		if fs, _ = clipboard.Formats(context.TODO()); containsFormat(fs, want) {
 			return fs
 		}
 		time.Sleep(100 * time.Millisecond)

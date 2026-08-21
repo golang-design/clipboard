@@ -7,6 +7,7 @@
 package clipboard_test
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -63,11 +64,11 @@ func TestWriteReadFiles(t *testing.T) {
 	filesReady(t)
 
 	want := testPaths(t)
-	if ch := clipboard.WriteFiles(want); ch == nil {
+	if ch, _ := clipboard.WriteFiles(context.TODO(), want); ch == nil {
 		t.Fatal("WriteFiles reported failure")
 	}
 
-	if got := clipboard.ReadFiles(); !reflect.DeepEqual(got, want) {
+	if got, _ := clipboard.ReadFiles(context.TODO()); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReadFiles() = %q, want %q", got, want)
 	}
 }
@@ -78,9 +79,13 @@ func TestWriteReadFiles(t *testing.T) {
 func TestFilesFormatIsEnumerated(t *testing.T) {
 	filesReady(t)
 
-	clipboard.WriteFiles(testPaths(t))
+	clipboard.WriteFiles(context.TODO(), testPaths(t))
 
-	for _, f := range clipboard.Formats() {
+	formats, err := clipboard.Formats(context.TODO())
+	if err != nil {
+		t.Fatalf("Formats: %v", err)
+	}
+	for _, f := range formats {
 		if f == clipboard.FmtFiles {
 			if got := f.MIME(); got != "text/uri-list" {
 				t.Fatalf("FmtFiles.MIME() = %q, want %q", got, "text/uri-list")
@@ -88,7 +93,7 @@ func TestFilesFormatIsEnumerated(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("Formats() = %v, want it to include FmtFiles after WriteFiles", clipboard.Formats())
+	t.Fatalf("Formats() = %v, want it to include FmtFiles after WriteFiles", formats)
 }
 
 // TestReadFilesRawBytes checks the portable byte encoding the format is
@@ -98,9 +103,9 @@ func TestReadFilesRawBytes(t *testing.T) {
 	filesReady(t)
 
 	paths := testPaths(t)
-	clipboard.WriteFiles(paths)
+	clipboard.WriteFiles(context.TODO(), paths)
 
-	buf := clipboard.Read(clipboard.FmtFiles)
+	buf, _ := clipboard.Read(context.TODO(), clipboard.FmtFiles)
 	if buf == nil {
 		t.Fatal("Read(FmtFiles) returned nil after WriteFiles")
 	}
@@ -124,18 +129,18 @@ func TestWriteAllWithFiles(t *testing.T) {
 
 	// WriteFiles is Write(FmtFiles, ...) over a uri-list body; take that body
 	// back out so the same list can go through WriteAll beside another format.
-	clipboard.WriteFiles(paths)
-	uris := clipboard.Read(clipboard.FmtFiles)
+	clipboard.WriteFiles(context.TODO(), paths)
+	uris, _ := clipboard.Read(context.TODO(), clipboard.FmtFiles)
 
-	clipboard.WriteAll(
+	clipboard.WriteAll(context.TODO(),
 		clipboard.Item{Format: clipboard.FmtFiles, Bytes: uris},
 		clipboard.Item{Format: clipboard.FmtText, Bytes: label},
 	)
 
-	if got := clipboard.ReadFiles(); !reflect.DeepEqual(got, paths) {
+	if got, _ := clipboard.ReadFiles(context.TODO()); !reflect.DeepEqual(got, paths) {
 		t.Fatalf("ReadFiles() = %q, want %q", got, paths)
 	}
-	if got := clipboard.Read(clipboard.FmtText); string(got) != string(label) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); string(got) != string(label) {
 		t.Fatalf("Read(FmtText) = %q, want %q", got, label)
 	}
 }

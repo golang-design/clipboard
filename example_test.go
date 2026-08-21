@@ -22,7 +22,9 @@ func ExampleWrite() {
 		panic(err)
 	}
 
-	clipboard.Write(clipboard.FmtText, []byte("Hello, 世界"))
+	if _, err := clipboard.Write(context.Background(), clipboard.FmtText, []byte("Hello, 世界")); err != nil {
+		panic(err)
+	}
 	// Output:
 }
 
@@ -32,7 +34,11 @@ func ExampleRead() {
 		panic(err)
 	}
 
-	fmt.Println(string(clipboard.Read(clipboard.FmtText)))
+	b, err := clipboard.Read(context.Background(), clipboard.FmtText)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(b))
 	// Output:
 	// Hello, 世界
 }
@@ -48,7 +54,7 @@ func ExampleWatch() {
 
 	changed := clipboard.Watch(context.Background(), clipboard.FmtText)
 	go func(ctx context.Context) {
-		clipboard.Write(clipboard.FmtText, []byte("你好，world"))
+		clipboard.Write(ctx, clipboard.FmtText, []byte("你好，world"))
 	}(ctx)
 	fmt.Println(string((<-changed).Bytes))
 	// Output:

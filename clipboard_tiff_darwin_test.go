@@ -10,6 +10,7 @@ package clipboard_test
 
 import (
 	"bytes"
+	"context"
 	"image/png"
 	"os"
 	"os/exec"
@@ -47,7 +48,7 @@ func TestReadImageTIFF(t *testing.T) {
 		t.Skipf("osascript unavailable: %v: %s", err, out)
 	}
 
-	b := clipboard.Read(clipboard.FmtImage)
+	b, _ := clipboard.Read(context.TODO(), clipboard.FmtImage)
 	if b == nil {
 		t.Fatal("reading a TIFF-only clipboard returned nil, want PNG data")
 	}

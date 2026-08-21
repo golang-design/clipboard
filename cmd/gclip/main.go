@@ -7,6 +7,7 @@
 package main // go install golang.design/x/clipboard/cmd/gclip@latest
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -100,16 +101,20 @@ func cpy() error {
 	}
 
 	// Wait until clipboard content has been changed.
-	<-clipboard.Write(t, b)
+	changed, err := clipboard.Write(context.TODO(), t, b)
+	if err != nil {
+		return err
+	}
+	<-changed
 	return nil
 }
 
 func pst() (err error) {
 	var b []byte
 
-	b = clipboard.Read(clipboard.FmtText)
+	b, _ = clipboard.Read(context.TODO(), clipboard.FmtText)
 	if b == nil {
-		b = clipboard.Read(clipboard.FmtImage)
+		b, _ = clipboard.Read(context.TODO(), clipboard.FmtImage)
 	}
 
 	if *file != "" && b != nil {

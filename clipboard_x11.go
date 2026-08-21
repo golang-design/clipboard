@@ -15,6 +15,7 @@ package clipboard
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"net"
 	"os"
@@ -26,6 +27,18 @@ import (
 
 	x11wire "golang.design/x/x11"
 )
+
+// x11Deadline is when a read should give up: the caller's deadline when it has
+// one and it is sooner, and the package ceiling otherwise. A caller that only
+// wants to wait 200ms for a paste can now say so; before, x11ReadTimeout was the
+// only answer available.
+func x11Deadline(ctx context.Context) time.Time {
+	ceiling := time.Now().Add(x11ReadTimeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(ceiling) {
+		return d
+	}
+	return ceiling
+}
 
 // x11ReadTimeout bounds a single Read so a missing SelectionNotify (e.g. an
 // owner that never answers) surfaces as an error instead of hanging.
@@ -286,18 +299,18 @@ func x11SelectionAtom(sel selection) string {
 	return "CLIPBOARD"
 }
 
-func x11Read(sel selection, target string) ([]byte, error) {
-	return x11ReadSelection(x11SelectionAtom(sel), target)
+func x11Read(ctx context.Context, sel selection, target string) ([]byte, error) {
+	return x11ReadSelection(ctx, x11SelectionAtom(sel), target)
 }
 
 // x11ReadSelection reads one target from the named selection.
-func x11ReadSelection(selName, target string) ([]byte, error) {
+func x11ReadSelection(ctx context.Context, selName, target string) ([]byte, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
 	}
 	defer x.Close()
-	x.c.SetReadDeadline(time.Now().Add(x11ReadTimeout))
+	x.c.SetReadDeadline(x11Deadline(ctx))
 
 	selAtom, e1 := x.intern(selName)
 	prop, e2 := x.intern("GOLANG_DESIGN_DATA")
@@ -366,18 +379,18 @@ func (x *x11conn) atomName(atom uint32) (string, error) {
 // x11Targets returns the target names the current CLIPBOARD selection advertises
 // (via the TARGETS target), or nil if the clipboard is empty. The TARGETS
 // property is a list of 4-byte atom ids, each resolved back to its name.
-func x11Targets(sel selection) ([]string, error) {
-	return x11TargetsOf(x11SelectionAtom(sel))
+func x11Targets(ctx context.Context, sel selection) ([]string, error) {
+	return x11TargetsOf(ctx, x11SelectionAtom(sel))
 }
 
 // x11TargetsOf lists the targets the named selection advertises.
-func x11TargetsOf(selName string) ([]string, error) {
+func x11TargetsOf(ctx context.Context, selName string) ([]string, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
 	}
 	defer x.Close()
-	x.c.SetReadDeadline(time.Now().Add(x11ReadTimeout))
+	x.c.SetReadDeadline(x11Deadline(ctx))
 
 	selAtom, e1 := x.intern(selName)
 	prop, e2 := x.intern("GOLANG_DESIGN_DATA")
@@ -434,8 +447,8 @@ func x11TargetsOf(selName string) ([]string, error) {
 
 // x11EnumerateFormats maps the advertised TARGETS to Format tokens, registering
 // custom MIME types on demand. Shared by the Linux and BSD backends.
-func x11EnumerateFormats(sel selection) []Format {
-	names, err := x11Targets(sel)
+func x11EnumerateFormats(ctx context.Context, sel selection) []Format {
+	names, err := x11Targets(ctx, sel)
 	if err != nil {
 		return nil
 	}

@@ -10,6 +10,7 @@ package clipboard_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -44,7 +45,7 @@ func TestWindowsImageStraightAlpha(t *testing.T) {
 	if err := png.Encode(&buf, src); err != nil {
 		t.Fatal(err)
 	}
-	clipboard.Write(clipboard.FmtImage, buf.Bytes())
+	clipboard.Write(context.TODO(), clipboard.FmtImage, buf.Bytes())
 	time.Sleep(200 * time.Millisecond)
 
 	const ps = `

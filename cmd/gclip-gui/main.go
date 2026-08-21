@@ -24,19 +24,19 @@
 //
 // - For desktop:
 //
-// 	go build -o gclip-gui
+//	go build -o gclip-gui
 //
 // - For Android:
 //
-// 	gomobile build -v -target=android -o gclip-gui.apk
+//	gomobile build -v -target=android -o gclip-gui.apk
 //
 // - For iOS:
 //
-// 	gomobile build -v -target=ios -bundleid design.golang.gclip-gui.app
-//
+//	gomobile build -v -target=ios -bundleid design.golang.gclip-gui.app
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -158,12 +158,12 @@ func (g *GclipApp) WatchClipboard() {
 		for range tk.C {
 			// Write something to the clipboard
 			w := fmt.Sprintf("(gclip: %d)", g.counter)
-			clipboard.Write(clipboard.FmtText, []byte(w))
+			clipboard.Write(context.TODO(), clipboard.FmtText, []byte(w))
 			g.counter++
 			log.Println(w)
 
 			// Read it back and render it, if possible.
-			data := clipboard.Read(clipboard.FmtText)
+			data, _ := clipboard.Read(context.TODO(), clipboard.FmtText)
 			if len(data) == 0 {
 				continue
 			}

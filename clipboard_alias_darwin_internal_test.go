@@ -10,6 +10,7 @@ package clipboard
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/ebitengine/purego/objc"
@@ -78,22 +79,23 @@ func TestDarwinForeignTypeIsReadable(t *testing.T) {
 	}
 
 	html := Register("text/html")
-	if got := Read(html); !bytes.Equal(got, want) {
+	if got, _ := Read(context.TODO(), html); !bytes.Equal(got, want) {
 		t.Fatalf(`Read(Register("text/html")) = %q, want %q`, got, want)
 	}
 	found := false
-	for _, f := range Formats() {
+	formats, _ := Formats(context.TODO())
+	for _, f := range formats {
 		if f == html {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf(`Formats() = %v, want it to include the "text/html" token %v`, Formats(), html)
+		t.Fatalf(`Formats() = %v, want it to include the "text/html" token %v`, formats, html)
 	}
 
 	// Writing through the public API advertises the native UTI, which is what
 	// makes the data visible to other applications.
-	Write(html, want)
+	Write(context.TODO(), html, want)
 	types := pasteboardTypes()
 	found = false
 	for _, typ := range types {

@@ -7,6 +7,7 @@
 package clipboard
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -76,7 +77,7 @@ func TestReadAsNoData(t *testing.T) {
 	// ReadAs must report ErrNoData and must not invoke decode.
 	f := Register("application/x.readas-nodata-test")
 	called := false
-	v, err := ReadAs(f, func(b []byte) (int, error) {
+	v, err := ReadAs(context.TODO(), f, func(b []byte) (int, error) {
 		called = true
 		return len(b), nil
 	})

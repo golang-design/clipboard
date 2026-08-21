@@ -36,7 +36,7 @@ func TestClipboardTargetsReflectWrittenFormat(t *testing.T) {
 	}
 
 	// Become the CLIPBOARD owner with text data.
-	if ch := Write(FmtText, []byte("targets-regression-#60")); ch == nil {
+	if ch, _ := Write(context.TODO(), FmtText, []byte("targets-regression-#60")); ch == nil {
 		t.Fatal("Write returned nil channel")
 	}
 

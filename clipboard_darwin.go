@@ -109,7 +109,7 @@ func newAutoreleasePool() (drain func()) {
 
 // enumerateFormats reports the formats currently on the clipboard by reading the
 // general pasteboard's advertised types and mapping each to a Format.
-func enumerateFormats(sel selection) []Format {
+func enumerateFormats(ctx context.Context, sel selection) []Format {
 	if sel == selPrimary {
 		return nil
 	}
@@ -214,7 +214,7 @@ func nsStringGo(s objc.ID) string {
 	return string(b)
 }
 
-func read(sel selection, t Format) (buf []byte, err error) {
+func read(ctx context.Context, sel selection, t Format) (buf []byte, err error) {
 	if sel == selPrimary {
 		// This platform has no primary selection (see FromPrimary).
 		return nil, errUnsupported
@@ -267,7 +267,7 @@ const (
 // set replaces the pasteboard together (#151). NSPasteboard is built for this:
 // a generation holds as many types as it is given, and a consumer picks the
 // first it understands.
-func writeAll(sel selection, items []Item, loops int) (<-chan struct{}, error) {
+func writeAll(ctx context.Context, sel selection, items []Item, loops int) (<-chan struct{}, error) {
 	// loops is ignored: this platform's clipboard is a store the OS serves, so
 	// no paste request ever reaches this process to be counted (see Loops).
 	_ = loops
@@ -350,7 +350,7 @@ func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 			case <-ti.C:
 				this := clipboard_change_count()
 				if lastCount != this {
-					b := Read(t, withSelection(sel))
+					b, _ := Read(ctx, t, withSelection(sel)) // a failed read is nothing new to report
 					if b == nil {
 						continue
 					}
