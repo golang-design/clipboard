@@ -404,6 +404,11 @@ func TestClipboardWatchMultiFormat(t *testing.T) {
 					t.Fatalf("image event payload is not a valid PNG: %v", err)
 				}
 				sawImage = true
+			case clipboard.FmtFiles:
+				// Watch with no format argument observes every built-in, and
+				// FmtFiles joined that set with #152. This test writes no file
+				// list, but a leftover one from another test is not a failure
+				// of the thing under test here.
 			default:
 				t.Fatalf("watch reported an unexpected format: %v", data.Format)
 			}

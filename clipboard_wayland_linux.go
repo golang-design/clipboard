@@ -486,17 +486,27 @@ func wlEnumerateFormats() []Format {
 }
 
 // wlFormatForMIME maps a Wayland MIME type to a Format: any of the known text
-// types to FmtText, image/png to FmtImage, and anything else to a custom format
-// registered on demand.
+// types to FmtText, image/png to FmtImage, text/uri-list to FmtFiles, and
+// anything else to a custom format registered on demand.
+//
+// A MIME type a built-in already claims must be matched before the custom
+// fallback, or the same clipboard data would be reachable under two tokens with
+// different contracts — the built-in's, which may transcode, and a registered
+// one, which promises the bytes verbatim. Enumeration is a separate path from
+// wlMIMEsFor, so a new built-in has to be added in both.
 func wlFormatForMIME(m string) Format {
-	for _, tm := range textMIMEs {
-		if m == tm {
-			return FmtText
-		}
-	}
-	for _, im := range imageMIMEs {
-		if m == im {
-			return FmtImage
+	for _, builtin := range []struct {
+		mimes  []string
+		format Format
+	}{
+		{textMIMEs, FmtText},
+		{imageMIMEs, FmtImage},
+		{fileMIMEs, FmtFiles},
+	} {
+		for _, bm := range builtin.mimes {
+			if m == bm {
+				return builtin.format
+			}
 		}
 	}
 	return Register(m)

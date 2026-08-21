@@ -119,8 +119,17 @@ round-trips through `text/uri-list` for paths with spaces, non-ASCII characters,
 Windows drive letters, and the CRLF and comment handling RFC 2483 requires.
 
 Each backend gets a round-trip test asserting `WriteFiles` then `ReadFiles`
-returns the same paths, plus `Formats()` reporting `FmtFiles` — the enumeration
-path, which is separate from the read path on every backend. Windows also gets a
+returns the same paths, plus `Formats()` reporting `FmtFiles`.
+
+**Enumeration is a separate code path from reading on every backend**, and it is
+where a new built-in gets forgotten: `darwinFormatFor`, `windowsFormatFor`,
+`x11FormatForTarget` and `wlFormatForMIME` each need the new type, in addition to
+the resolution helper the read and write paths use. Miss one and the fallback
+branch registers the type as a *custom* format instead, so the same clipboard
+data becomes reachable under two tokens with different contracts — the built-in's,
+which may transcode, and a registered one, which promises the bytes verbatim.
+That is the asymmetry #160 existed to remove, so the `Formats()` assertion is
+part of the round-trip test rather than an extra. Windows also gets a
 `DROPFILES` layout test, since a wrong header offset produces a payload other
 applications silently ignore rather than an error.
 
