@@ -463,7 +463,7 @@ func readFiles() ([]byte, error) {
 	}
 	paths := pathsFromDropFiles(buf)
 	if len(paths) == 0 {
-		return nil, errUnavailable
+		return nil, ErrNoData
 	}
 	return uriListFromPaths(paths), nil
 }
@@ -635,10 +635,13 @@ func read(ctx context.Context, sel selection, t Format) (buf []byte, err error) 
 		}
 	}
 
-	// check if clipboard is avaliable for the requested format
-	r, _, err := isClipboardFormatAvailable.Call(format)
+	// The format is simply not on the clipboard, which is the ordinary "nothing
+	// to paste" case rather than a clipboard this process cannot reach. The two
+	// used to be reported alike because this check conflates them; a caller
+	// asking for an image on a text-only clipboard wants ErrNoData.
+	r, _, _ := isClipboardFormatAvailable.Call(format)
 	if r == 0 {
-		return nil, errUnavailable
+		return nil, ErrNoData
 	}
 
 	if err := openClipboardRetry(); err != nil {

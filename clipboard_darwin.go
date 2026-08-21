@@ -223,7 +223,9 @@ func read(ctx context.Context, sel selection, t Format) (buf []byte, err error) 
 	case FmtFiles:
 		paths := clipboard_read_filenames()
 		if len(paths) == 0 {
-			return nil, errUnavailable
+			// No file list on the pasteboard is the ordinary empty case, not a
+			// pasteboard this process cannot reach.
+			return nil, ErrNoData
 		}
 		return uriListFromPaths(paths), nil
 	case FmtText:

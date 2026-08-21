@@ -133,5 +133,19 @@ an owned one refuses an unknown target — so demonstrating that a deadline cuts
 wait short needs a second, uncooperative process. Testing the calculation is
 honest; testing the read there would have been theatre.
 
+CI found the half-done half of §4. The spec said backends conflating "format
+absent" with "clipboard unavailable" would report `ErrNoData`, and only some of
+them did: Windows still returned `ErrUnavailable` from its
+`IsClipboardFormatAvailable` check, and so did the `CF_HDROP` and
+`NSFilenamesPboardType` reads when the list was empty. They report `ErrNoData`
+now.
+
+The Wayland job failed for the opposite reason, and correctly: `TestReadAsNoData`
+never called `Init`, so with xwayland disabled it fell through to X11 with no X
+server — genuinely unavailable. The old `ReadAs` mapped every failure to
+`ErrNoData`, which is exactly the flattening this change exists to undo, so the
+test had been asserting the right answer for the wrong reason for as long as it
+had existed. It initializes first now.
+
 `ErrUnavailable` was previously re-exported from `export_test.go` for the test
 build. It is public now, so that re-export is gone.
