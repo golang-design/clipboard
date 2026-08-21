@@ -136,6 +136,17 @@ are now `current` and `offerID` — worth the churn, because a shadowed selectio
 argument in a loop that dispatches on selection opcodes is exactly the bug that
 returns the other clipboard's data while every same-process test passes.
 
+The polling watchers go back through the public `Read` so the package lock is
+taken for them, and that call has to carry the selection it was started on. It
+did not at first, and CI caught it: `TestPrimarySelectionWatch` timed out on X11
+because the watcher polled `CLIPBOARD` while claiming to watch `PRIMARY`. A
+timeout was the lucky outcome — had the clipboard changed, the watcher would
+have delivered the *other* clipboard's data through a channel the caller
+believes is watching the selection. `withSelection` exists for that hand-off,
+and every polling watcher uses it, including on the platforms where the primary
+selection is refused earlier: relying on that early return to keep the call
+correct is how the bug comes back.
+
 `WriteFiles` changed shape from `(paths ...string)` to `(paths []string, opts
 ...Option)`. It shipped in #152 and is in no tag, so nothing depended on it, but
 it is the one call in the package that options could not be appended to — a

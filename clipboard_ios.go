@@ -82,7 +82,7 @@ func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
 func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
-	last := Read(t)
+	last := Read(t, withSelection(sel))
 	go func() {
 		defer ti.Stop()
 		for {
@@ -91,7 +91,7 @@ func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				b := Read(t)
+				b := Read(t, withSelection(sel))
 				if b == nil {
 					continue
 				}

@@ -351,7 +351,7 @@ func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 			case <-ti.C:
 				this := clipboard_change_count()
 				if lastCount != this {
-					b := Read(t)
+					b := Read(t, withSelection(sel))
 					if b == nil {
 						continue
 					}

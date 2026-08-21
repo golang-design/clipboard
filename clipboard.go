@@ -238,6 +238,13 @@ func (o optionFunc) apply(c *config) { o(c) }
 // that would destroy whatever the user had copied.
 func FromPrimary() Option { return optionFunc(func(c *config) { c.sel = selPrimary }) }
 
+// withSelection carries an already-resolved selection into a public call. The
+// polling watchers go back through Read so the package lock is taken for them,
+// and must ask for the selection they were started on: reading without it would
+// poll the ordinary clipboard while claiming to watch the primary selection,
+// and deliver the wrong clipboard's data.
+func withSelection(sel selection) Option { return optionFunc(func(c *config) { c.sel = sel }) }
+
 // newConfig folds the options into a config.
 func newConfig(opts []Option) *config {
 	c := &config{}

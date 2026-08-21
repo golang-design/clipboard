@@ -101,7 +101,7 @@ func TestWatchPollIsSlowerThanTheEventCeiling(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	recv := watchPoll(ctx, FmtText)
+	recv := watchPoll(ctx, selClipboard, FmtText)
 
 	want := []byte("poll-fallback")
 	start := time.Now()

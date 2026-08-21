@@ -754,17 +754,17 @@ func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 		close(recv)
 		return recv
 	}
-	if recv, ok := watchEvent(ctx, t); ok {
+	if recv, ok := watchEvent(ctx, sel, t); ok {
 		return recv
 	}
-	return watchPoll(ctx, t)
+	return watchPoll(ctx, sel, t)
 }
 
 // watchEvent watches through a message-only window registered as a clipboard
 // format listener, so a change is delivered when it happens instead of at the
 // next tick. It reports false — having cleaned up whatever it did create — when
 // the window cannot be set up, leaving the caller to fall back to polling.
-func watchEvent(ctx context.Context, t Format) (<-chan []byte, bool) {
+func watchEvent(ctx context.Context, sel selection, t Format) (<-chan []byte, bool) {
 	if !clipboardListenerAvailable() {
 		return nil, false
 	}
@@ -830,7 +830,7 @@ func watchEvent(ctx context.Context, t Format) (<-chan []byte, bool) {
 			}
 			// The listener fires for every change, whatever its format; a nil
 			// read means this change was not in the watched one.
-			b := Read(t)
+			b := Read(t, withSelection(sel))
 			if b == nil {
 				cnt = cur
 				continue
@@ -854,7 +854,7 @@ func watchEvent(ctx context.Context, t Format) (<-chan []byte, bool) {
 // watchPoll observes the clipboard by comparing the sequence number on a fixed
 // tick. It is the fallback for backends and environments without a usable
 // clipboard listener; changes closer together than the interval coalesce.
-func watchPoll(ctx context.Context, t Format) <-chan []byte {
+func watchPoll(ctx context.Context, sel selection, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	ready := make(chan struct{})
 	go func() {
@@ -871,7 +871,7 @@ func watchPoll(ctx context.Context, t Format) <-chan []byte {
 			case <-ti.C:
 				cur, _, _ := getClipboardSequenceNumber.Call()
 				if cnt != cur {
-					b := Read(t)
+					b := Read(t, withSelection(sel))
 					if b == nil {
 						continue
 					}
