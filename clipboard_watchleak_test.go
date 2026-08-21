@@ -9,7 +9,6 @@ package clipboard_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -23,11 +22,7 @@ import (
 // clipboard changes that each fills its buffer and blocks on the next send, then
 // cancels all and asserts the goroutines return to baseline.
 func TestWatchNoGoroutineLeakOnCancel(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 	if err := clipboard.Init(); err != nil {
 		t.Skipf("clipboard unavailable: %v", err)
 	}

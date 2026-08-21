@@ -70,6 +70,29 @@ jobs:
       run: |
         go test -v -covermode=atomic .
 
+  # The browser backend (#64). Go's wasm test runner works under Node, which has
+  # a navigator global but no navigator.clipboard — the same shape as a page
+  # served over plain HTTP, where the Clipboard API is withheld for want of a
+  # secure context. That exercises the unavailable path rather than only
+  # compiling it. Behavior against a real navigator.clipboard needs a browser and
+  # a permission grant and is not covered here; see specs/web-support.md.
+  wasm_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        stable: 'false'
+        go-version: '1.24.x'
+    - name: Build and test for js/wasm
+      env:
+        GOOS: js
+        GOARCH: wasm
+      run: |
+        go build .
+        go vet .
+        go test -count=1 -v -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" .
+
   # The clipboard package previously hung on 32-bit Windows (#45). Make
   # sure it keeps compiling for GOARCH=386. The runtime behavior cannot be
   # exercised here because GitHub-hosted runners are amd64 only.

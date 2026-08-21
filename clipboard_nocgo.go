@@ -1,4 +1,4 @@
-//go:build !darwin && !windows && !linux && !freebsd && !openbsd && !netbsd && !cgo
+//go:build !darwin && !windows && !linux && !freebsd && !openbsd && !netbsd && !js && !cgo
 
 package clipboard
 

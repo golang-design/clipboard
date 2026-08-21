@@ -37,6 +37,21 @@ func degradesWithoutCgo() bool {
 	return true
 }
 
+// skipWithoutClipboard skips a test when this build has no working clipboard to
+// exercise. Init is the authority on that: it fails in a CGO-disabled desktop
+// build, on mobile, and under js/wasm outside a browser.
+//
+// The tests used to ask whether CGO_ENABLED was literally "0", which answered a
+// different question and answered it wrong off the desktop — under js/wasm the
+// variable is simply unset, so the guard let the whole suite run against a
+// clipboard that does not exist, where it failed and in one case hung.
+func skipWithoutClipboard(t *testing.T) {
+	t.Helper()
+	if err := clipboard.Init(); err != nil {
+		t.Skipf("clipboard unavailable: %v", err)
+	}
+}
+
 func TestClipboardInit(t *testing.T) {
 	t.Run("no-cgo", func(t *testing.T) {
 		if val, ok := os.LookupEnv("CGO_ENABLED"); !ok || val != "0" {
@@ -65,11 +80,7 @@ func TestClipboardInit(t *testing.T) {
 }
 
 func TestClipboard(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	t.Run("image", func(t *testing.T) {
 		data, err := os.ReadFile("tests/testdata/clipboard.png")
@@ -150,11 +161,7 @@ func TestClipboard(t *testing.T) {
 }
 
 func TestClipboardMultipleWrites(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	data, err := os.ReadFile("tests/testdata/clipboard.png")
 	if err != nil {
@@ -197,11 +204,7 @@ func TestClipboardMultipleWrites(t *testing.T) {
 }
 
 func TestClipboardConcurrentRead(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	// This test check that concurrent read/write to the clipboard does
 	// not cause crashes on some specific platform, such as macOS.
@@ -223,11 +226,7 @@ func TestClipboardConcurrentRead(t *testing.T) {
 }
 
 func TestClipboardWriteEmpty(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	chg1, _ := clipboard.Write(context.TODO(), clipboard.FmtText, nil)
 	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); got != nil {
@@ -242,11 +241,7 @@ func TestClipboardWriteEmpty(t *testing.T) {
 }
 
 func TestClipboardWatch(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
@@ -328,11 +323,7 @@ loop:
 // supported formats. This test cannot compile against the old single-format
 // Watch(ctx, Format) <-chan []byte signature.
 func TestClipboardWatchMultiFormat(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	img, err := os.ReadFile("tests/testdata/clipboard.png")
 	if err != nil {

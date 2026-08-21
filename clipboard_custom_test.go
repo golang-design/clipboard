@@ -26,11 +26,7 @@ import (
 func customRoundTrip(t *testing.T) {
 	t.Helper()
 
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	// Raw bytes including a NUL and non-UTF-8 bytes: a passthrough format must
 	// preserve them exactly, unlike FmtText (UTF-8) or FmtImage (PNG).
