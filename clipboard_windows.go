@@ -243,6 +243,12 @@ func resolveItem(it Item) (windowsItem, error) {
 			return windowsItem{}, fmt.Errorf("failed to convert given string: %w", err)
 		}
 		return windowsItem{format: cFmtUnicodeText, buf: utf16Bytes(s)}, nil
+	case FmtFiles:
+		paths := pathsFromURIList(it.Bytes)
+		if len(paths) == 0 {
+			return windowsItem{format: cFmtHDrop}, nil
+		}
+		return windowsItem{format: cFmtHDrop, buf: dropFilesFromPaths(paths)}, nil
 	case FmtImage:
 		if len(it.Bytes) == 0 {
 			return windowsItem{format: cFmtDIBV5}, nil
@@ -263,6 +269,90 @@ func resolveItem(it Item) (windowsItem, error) {
 		}
 		return windowsItem{format: id, buf: it.Bytes}, nil
 	}
+}
+
+// dropFilesHeader is the DROPFILES structure that prefixes a CF_HDROP payload.
+// The paths follow it, at the byte offset PFiles names.
+type dropFilesHeader struct {
+	PFiles uint32 // offset of the path list from the start of this struct
+	X, Y   int32  // POINT pt: the drop point, unused for a clipboard copy
+	FNC    uint32 // BOOL fNC: pt is in non-client coordinates
+	FWide  uint32 // BOOL fWide: the path list is UTF-16 rather than ANSI
+}
+
+// dropFilesHeaderSize is sizeof(DROPFILES): 4 + 8 + 4 + 4. It is spelled out
+// rather than taken from unsafe.Sizeof so that no padding rule can change the
+// on-clipboard layout, which other applications parse by offset.
+const dropFilesHeaderSize = 20
+
+// dropFilesFromPaths encodes file paths as a CF_HDROP payload: the DROPFILES
+// header, then the paths as UTF-16, each NUL-terminated, the list closed by a
+// second NUL.
+func dropFilesFromPaths(paths []string) []byte {
+	var units []uint16
+	for _, p := range paths {
+		u, err := syscall.UTF16FromString(p) // already NUL-terminated
+		if err != nil {
+			continue // a path with an interior NUL names no file
+		}
+		units = append(units, u...)
+	}
+	units = append(units, 0) // the extra NUL that ends the list
+
+	out := make([]byte, dropFilesHeaderSize+len(units)*2)
+	binary.LittleEndian.PutUint32(out[0:], dropFilesHeaderSize) // pFiles
+	binary.LittleEndian.PutUint32(out[16:], 1)                  // fWide
+	for i, u := range units {
+		binary.LittleEndian.PutUint16(out[dropFilesHeaderSize+i*2:], u)
+	}
+	return out
+}
+
+// pathsFromDropFiles decodes a CF_HDROP payload into file paths. It honors the
+// header's own pFiles offset and fWide flag rather than assuming the layout this
+// package writes, since the payload usually comes from another application.
+func pathsFromDropFiles(buf []byte) []string {
+	if len(buf) < dropFilesHeaderSize {
+		return nil
+	}
+	off := int(binary.LittleEndian.Uint32(buf[0:]))
+	wide := binary.LittleEndian.Uint32(buf[16:]) != 0
+	if off < dropFilesHeaderSize || off > len(buf) {
+		return nil
+	}
+	list := buf[off:]
+
+	if !wide {
+		// An ANSI list: NUL-separated bytes, closed by a second NUL. Only the
+		// ASCII range is unambiguous without the source's code page, which the
+		// payload does not carry.
+		var out []string
+		for _, part := range bytes.Split(list, []byte{0}) {
+			if len(part) == 0 {
+				break
+			}
+			out = append(out, string(part))
+		}
+		return out
+	}
+
+	units := make([]uint16, 0, len(list)/2)
+	for i := 0; i+1 < len(list); i += 2 {
+		units = append(units, binary.LittleEndian.Uint16(list[i:]))
+	}
+	var out []string
+	for start := 0; start < len(units); {
+		end := start
+		for end < len(units) && units[end] != 0 {
+			end++
+		}
+		if end == start {
+			break // the empty string that terminates the list
+		}
+		out = append(out, string(utf16.Decode(units[start:end])))
+		start = end + 1
+	}
+	return out
 }
 
 // windowsNativeNames aliases a portable MIME type to the registered clipboard
@@ -364,6 +454,20 @@ func clearClipboard() error {
 	return nil
 }
 
+// readFiles reads the CF_HDROP file list and returns it in the format's portable
+// encoding, a text/uri-list body. The caller must have opened the clipboard.
+func readFiles() ([]byte, error) {
+	buf, err := readCustom(cFmtHDrop)
+	if err != nil {
+		return nil, err
+	}
+	paths := pathsFromDropFiles(buf)
+	if len(paths) == 0 {
+		return nil, errUnavailable
+	}
+	return uriListFromPaths(paths), nil
+}
+
 // readCustom returns the raw bytes stored under the given clipboard format ID,
 // or nil if the handle is empty. The caller must have opened the clipboard.
 func readCustom(format uintptr) ([]byte, error) {
@@ -430,6 +534,8 @@ func windowsFormatFor(format uintptr) (Format, bool) {
 		return FmtText, true
 	case cFmtDIBV5, cFmtDIB, cFmtBitmap:
 		return FmtImage, true
+	case cFmtHDrop:
+		return FmtFiles, true
 	}
 	return windowsFormatForName(clipboardFormatName(format))
 }
@@ -509,6 +615,8 @@ func read(t Format) (buf []byte, err error) {
 		format = cFmtDIBV5
 	case FmtText:
 		format = cFmtUnicodeText
+	case FmtFiles:
+		format = cFmtHDrop
 	default:
 		mime, ok := formatMIME(t)
 		if !ok {
@@ -536,6 +644,8 @@ func read(t Format) (buf []byte, err error) {
 		return readImage()
 	case cFmtUnicodeText:
 		return readText()
+	case cFmtHDrop:
+		return readFiles()
 	default:
 		return readCustom(format)
 	}
@@ -882,6 +992,7 @@ func clipboardListenerAvailable() bool {
 const (
 	cFmtBitmap      = 2 // Win+PrintScreen
 	cFmtDIB         = 8
+	cFmtHDrop       = 15 // a DROPFILES struct: what Explorer copies files as
 	cFmtUnicodeText = 13
 	cFmtDIBV5       = 17
 	// Screenshot taken from special shortcut is in different format (why??), see:

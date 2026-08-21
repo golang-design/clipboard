@@ -394,15 +394,24 @@ func x11EnumerateFormats() []Format {
 }
 
 // x11FormatForTarget maps an X11 target/atom name to a Format: the common text
-// atoms to FmtText, image/png to FmtImage, any other MIME-shaped name (one that
-// contains '/') to a registered custom format. X11 meta-targets such as TARGETS,
-// MULTIPLE and TIMESTAMP have no '/', so they are ignored.
+// atoms to FmtText, image/png to FmtImage, text/uri-list to FmtFiles, any other
+// MIME-shaped name (one that contains '/') to a registered custom format. X11
+// meta-targets such as TARGETS, MULTIPLE and TIMESTAMP have no '/', so they are
+// ignored.
+//
+// A name a built-in already claims must be matched here before the custom
+// branch, or the same clipboard data would be reachable under two tokens with
+// different contracts — the built-in's, which may transcode, and a registered
+// one, which promises the bytes verbatim. Enumeration is a separate path from
+// x11TargetFor, so a new built-in has to be added in both.
 func x11FormatForTarget(name string) (Format, bool) {
 	switch name {
 	case "UTF8_STRING", "STRING", "TEXT", "text/plain", "text/plain;charset=utf-8":
 		return FmtText, true
 	case "image/png":
 		return FmtImage, true
+	case "text/uri-list":
+		return FmtFiles, true
 	}
 	if strings.Contains(name, "/") {
 		return Register(name), true
@@ -422,6 +431,10 @@ func x11TargetFor(t Format) (string, bool) {
 		return "UTF8_STRING", true
 	case FmtImage:
 		return "image/png", true
+	case FmtFiles:
+		// text/uri-list is both the target atom other applications use and
+		// this format's portable encoding, so no conversion is needed here.
+		return "text/uri-list", true
 	default:
 		return formatMIME(t)
 	}

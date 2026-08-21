@@ -65,19 +65,12 @@ func read(t Format) (buf []byte, err error) {
 	if useWayland {
 		return wlRead(t)
 	}
-	switch t {
-	case FmtText:
-		return x11Read("UTF8_STRING")
-	case FmtImage:
-		return x11Read("image/png")
-	default:
-		mime, ok := formatMIME(t)
-		if !ok {
-			return nil, errUnsupported
-		}
-		// On X11 a MIME type is used directly as the target atom.
-		return x11Read(mime)
+	target, ok := x11TargetFor(t)
+	if !ok {
+		return nil, errUnsupported
 	}
+	// On X11 a MIME type is used directly as the target atom.
+	return x11Read(target)
 }
 
 func write(t Format, buf []byte) (<-chan struct{}, error) {

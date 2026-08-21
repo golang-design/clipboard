@@ -13,6 +13,7 @@ import "golang.design/x/clipboard"
 - Copy/paste UTF-8 text
 - Copy/paste PNG-encoded images (Desktop-only); `Write` also accepts other encodings when their decoder is registered
 - Register and copy/paste custom MIME-typed formats (Desktop-only, raw passthrough)
+- Copy/paste files (`FmtFiles`), the way a file manager does
 - Publish several formats in one copy (`WriteAll`), e.g. `text/html` + `text/plain`
 - Watch the clipboard for changes (event-driven on Wayland and Windows)
 - Discover what's on the clipboard with `Formats()` / `Format.MIME` (Desktop-only)
@@ -69,6 +70,26 @@ case <-changed:
       println(`"text data" is no longer available from clipboard.`)
 }
 ```
+
+To copy or paste **files** — what a file manager puts on the clipboard when you
+press Ctrl+C on a selection — use `WriteFiles` and `ReadFiles`:
+
+```go
+clipboard.WriteFiles("/home/me/report.pdf", "/home/me/notes.txt")
+
+for _, path := range clipboard.ReadFiles() {
+      println(path)
+}
+```
+
+Each platform stores a file list its own way — `CF_HDROP` on Windows,
+`NSFilenamesPboardType` on macOS, `text/uri-list` on X11 and Wayland — and
+`FmtFiles` translates between them, so the same code works everywhere and
+interoperates with Explorer, Finder, Nautilus and Dolphin. `FmtFiles` is a
+normal built-in: it works with `Read`, `Write`, `Watch`, `WriteAll` and
+`Formats`, and its portable byte encoding is a `text/uri-list` body (RFC 2483),
+which `Read(FmtFiles)` returns directly. Desktop only — on iOS, Android and
+CGO-disabled builds a file list is neither readable nor writable.
 
 To publish several representations of the same content at once — the "copy
 rich text" behaviour, where the destination app takes the richest format it
@@ -263,6 +284,10 @@ accessing system clipboards, but here are a few details you might need to know.
 - **Linux/X11 selection.** Only the `CLIPBOARD` selection (Ctrl+C/Ctrl+V)
   is accessed; the `PRIMARY` selection (middle-click paste) is not
   supported.
+- **File lists.** `FmtFiles` carries paths, not file contents: copying a file
+  puts its path on the clipboard, and the file itself must still exist when the
+  paste happens. The "cut" flag Explorer sets alongside `CF_HDROP` to mean move
+  rather than copy is not exposed, so a paste target reads every list as a copy.
 - **Image format.** `Read(FmtImage)` always returns PNG. `Write(FmtImage, ...)`
   accepts PNG and normalizes other encodings to PNG when the matching decoder is
   registered (blank-import it, e.g. `_ "image/jpeg"`). Use a custom format
@@ -295,9 +320,10 @@ There are system level shortcuts to put screenshot image into your system clipbo
 - On Linux/Ubuntu, use `Ctrl+Shift+PrintScreen`
 - On Windows, use `Shift+Win+s`
 
-The built-in formats are UTF-8 encoded plain text (`FmtText`) and PNG encoded
-images (`FmtImage`). Arbitrary types can be exchanged as custom MIME formats via
-`Register` (raw passthrough). On mobile (iOS/Android) only text is supported.
+The built-in formats are UTF-8 encoded plain text (`FmtText`), PNG encoded
+images (`FmtImage`), and file lists (`FmtFiles`, a `text/uri-list` body).
+Arbitrary types can be exchanged as custom MIME formats via `Register` (raw
+passthrough). On mobile (iOS/Android) only text is supported.
 
 ## Who is using this package?
 

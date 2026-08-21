@@ -300,6 +300,11 @@ const (
 var (
 	textMIMEs  = []string{"text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "STRING", "TEXT"}
 	imageMIMEs = []string{"image/png"}
+	// text/uri-list is this format's portable encoding as well as the type
+	// file managers exchange, so no conversion is needed on Wayland. GNOME's
+	// Nautilus also publishes its own type alongside; only the standard one is
+	// claimed here, since the others are not uri-list bodies.
+	fileMIMEs = []string{"text/uri-list"}
 )
 
 // wlEncodeString encodes a Wayland string argument: a 32-bit length including
@@ -351,20 +356,13 @@ func (w *wlConn) requestFd(objID uint32, opcode uint16, payload []byte, fd int) 
 
 // wlRead reads the current clipboard selection for the given format.
 func wlRead(t Format) ([]byte, error) {
-	switch t {
-	case FmtText:
-		return wlReadSelection(textMIMEs)
-	case FmtImage:
-		return wlReadSelection(imageMIMEs)
-	default:
-		mime, ok := formatMIME(t)
-		if !ok {
-			return nil, errUnsupported
-		}
-		// Wayland advertises selections by MIME type, so a custom format's
-		// MIME string is offered/requested verbatim.
-		return wlReadSelection([]string{mime})
+	// Wayland advertises selections by MIME type, so a format's MIME string is
+	// offered and requested verbatim.
+	mimes, ok := wlMIMEsFor(t)
+	if !ok {
+		return nil, errUnsupported
 	}
+	return wlReadSelection(mimes)
 }
 
 // wlReadSelection connects to the compositor and reads the regular clipboard
@@ -488,17 +486,27 @@ func wlEnumerateFormats() []Format {
 }
 
 // wlFormatForMIME maps a Wayland MIME type to a Format: any of the known text
-// types to FmtText, image/png to FmtImage, and anything else to a custom format
-// registered on demand.
+// types to FmtText, image/png to FmtImage, text/uri-list to FmtFiles, and
+// anything else to a custom format registered on demand.
+//
+// A MIME type a built-in already claims must be matched before the custom
+// fallback, or the same clipboard data would be reachable under two tokens with
+// different contracts — the built-in's, which may transcode, and a registered
+// one, which promises the bytes verbatim. Enumeration is a separate path from
+// wlMIMEsFor, so a new built-in has to be added in both.
 func wlFormatForMIME(m string) Format {
-	for _, tm := range textMIMEs {
-		if m == tm {
-			return FmtText
-		}
-	}
-	for _, im := range imageMIMEs {
-		if m == im {
-			return FmtImage
+	for _, builtin := range []struct {
+		mimes  []string
+		format Format
+	}{
+		{textMIMEs, FmtText},
+		{imageMIMEs, FmtImage},
+		{fileMIMEs, FmtFiles},
+	} {
+		for _, bm := range builtin.mimes {
+			if m == bm {
+				return builtin.format
+			}
 		}
 	}
 	return Register(m)
@@ -629,6 +637,8 @@ func wlMIMEsFor(t Format) ([]string, bool) {
 		return textMIMEs, true
 	case FmtImage:
 		return imageMIMEs, true
+	case FmtFiles:
+		return fileMIMEs, true
 	default:
 		mime, ok := formatMIME(t)
 		if !ok {
@@ -776,19 +786,10 @@ func wlServeSend(w *wlConn, body []byte, data map[string][]byte) {
 // every change, so this is event-driven rather than polled.
 func wlWatch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
-	var mimes []string
-	switch t {
-	case FmtText:
-		mimes = textMIMEs
-	case FmtImage:
-		mimes = imageMIMEs
-	default:
-		mime, ok := formatMIME(t)
-		if !ok {
-			close(recv)
-			return recv
-		}
-		mimes = []string{mime}
+	mimes, ok := wlMIMEsFor(t)
+	if !ok {
+		close(recv)
+		return recv
 	}
 
 	w, _, deviceID, err := wlConnectDevice()

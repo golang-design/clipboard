@@ -52,7 +52,7 @@ func read(t Format) (buf []byte, err error) {
 	case FmtImage:
 		return nil, errUnsupported
 	default:
-		// The Android bridge handles only text; images and custom MIME
+		// The Android bridge handles only text; images, file lists and custom MIME
 		// formats registered via Register degrade to nil here.
 		return nil, errUnsupported
 	}
@@ -78,7 +78,7 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 	case FmtImage:
 		return nil, errUnsupported
 	default:
-		// The Android bridge handles only text; images and custom MIME
+		// The Android bridge handles only text; images, file lists and custom MIME
 		// formats registered via Register degrade to a no-op here.
 		return nil, errUnsupported
 	}
