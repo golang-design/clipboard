@@ -31,13 +31,18 @@ func TestWaylandLoopsDropsAfterServing(t *testing.T) {
 		t.Skip("wl-paste not found")
 	}
 
+	// A private MIME type, so a Watch still winding down from an earlier test
+	// cannot consume the one serve under test: every receive is a serve, and
+	// this package's own watchers read the built-in formats once a second.
+	const mime = "application/x.golang-design.clipboard-wl-loops"
+
 	secret := []byte("pasted once, then gone")
-	if _, err := wlWriteAll(selClipboard, []Item{{Format: FmtText, Bytes: secret}}, 1); err != nil {
+	if _, err := wlWriteAll(selClipboard, []Item{{Format: Register(mime), Bytes: secret}}, 1); err != nil {
 		t.Fatalf("wlWriteAll with a serve limit: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	out, err := exec.Command("wl-paste", "--no-newline").Output()
+	out, err := exec.Command("wl-paste", "--type", mime, "--no-newline").Output()
 	if err != nil {
 		t.Fatalf("first wl-paste: %v", err)
 	}
@@ -50,7 +55,7 @@ func TestWaylandLoopsDropsAfterServing(t *testing.T) {
 	// clipboard, so either an error or empty output is the expected outcome.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		out, err := exec.Command("wl-paste", "--no-newline").Output()
+		out, err := exec.Command("wl-paste", "--type", mime, "--no-newline").Output()
 		if err != nil || !bytes.Equal(out, secret) {
 			return // dropped, as asked
 		}

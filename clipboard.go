@@ -269,6 +269,12 @@ func withSelection(sel selection) Option { return optionFunc(func(c *config) { c
 // application that asks for several formats in one paste consumes one loop per
 // format. Asking which formats are available does not consume any. A count of
 // zero or less means unlimited, which is the default.
+//
+// Every reader counts, including this program. A Read in this process consumes a
+// serve like anyone else's, and so does each poll of a Watch on the same format
+// — so a Watch running alongside a Loops(1) write will usually be the one that
+// consumes it. Watch a different format, or do not watch while a serve-limited
+// write is outstanding.
 func Loops(n int) Option { return optionFunc(func(c *config) { c.loops = n }) }
 
 // newConfig folds the options into a config.
