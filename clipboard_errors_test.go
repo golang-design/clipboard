@@ -9,7 +9,6 @@ package clipboard_test
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 
 	"golang.design/x/clipboard"
@@ -17,11 +16,7 @@ import (
 
 func errorsReady(t *testing.T) {
 	t.Helper()
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 	if err := clipboard.Init(); err != nil {
 		t.Skipf("clipboard unavailable: %v", err)
 	}

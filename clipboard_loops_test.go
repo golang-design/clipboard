@@ -31,11 +31,7 @@ func ownerServed() bool {
 func loopsReady(t *testing.T) {
 	t.Helper()
 
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 	if os.Getenv("WAYLAND_DISPLAY") != "" {
 		t.Skip("Wayland loops are covered by the cross-process interop test")
 	}

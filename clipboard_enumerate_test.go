@@ -8,7 +8,6 @@ package clipboard_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -22,11 +21,7 @@ import (
 func enumerateRoundTrip(t *testing.T) {
 	t.Helper()
 
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 
 	// A built-in format is reported after it is written.
 	clipboard.Write(context.TODO(), clipboard.FmtText, []byte("enumerate-text"))

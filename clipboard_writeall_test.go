@@ -23,11 +23,7 @@ import (
 func writeAllReady(t *testing.T) {
 	t.Helper()
 
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 	// Under data-control a client does not observe its own just-set selection,
 	// so Wayland is covered cross-process instead (clipboard_writeall_wayland_test.go).
 	if os.Getenv("WAYLAND_DISPLAY") != "" {

@@ -8,7 +8,7 @@ import "golang.design/x/clipboard"
 
 ## Features
 
-- Cross platform supports: **macOS, Linux (X11 and Wayland), Windows, BSD (X11), iOS, and Android**
+- Cross platform supports: **macOS, Linux (X11 and Wayland), Windows, BSD (X11), iOS, Android, and the browser (js/wasm, text only)**
 - **Cgo-free on desktop** (macOS, Linux, Windows, BSD) — no C toolchain at build time, no `libX11`/`libwayland` at runtime
 - Copy/paste UTF-8 text
 - Copy/paste PNG-encoded images (Desktop-only); `Write` also accepts other encodings when their decoder is registered
@@ -346,6 +346,16 @@ accessing system clipboards, but here are a few details you might need to know.
 - iOS/Android: collaborate with [`gomobile`](https://golang.org/x/mobile)
 
 ### Caveats
+
+- **Browser (js/wasm).** `FmtText` reads and writes go through
+  `navigator.clipboard`, which needs a **secure context** (https, or localhost in
+  development) — `Init` says so when it is missing. Two browser rules apply and
+  neither is this package's to lift: a **read needs a user gesture** and a
+  permission grant, so `Read` called from `main` is denied by the browser; and
+  because Go's wasm scheduler runs on the JS event loop, `Read`/`Write` must run
+  on a **goroutine started by** an event handler rather than directly inside it,
+  or the handler never returns and the Promise never settles. Images, custom
+  formats, `Watch` and `Formats` report `ErrUnsupported` rather than pretending.
 
 - **Linux/X11 clipboard ownership.** On X11 the process that writes to
   the clipboard *owns* the selection and serves its content to other

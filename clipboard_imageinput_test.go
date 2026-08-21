@@ -13,7 +13,6 @@ import (
 	"image/color"
 	"image/jpeg" // also registers the JPEG decoder used by Write's normalization
 	"image/png"
-	"os"
 	"testing"
 	"time"
 
@@ -25,11 +24,7 @@ import (
 // serves PNG back (#155). Without normalization the raw JPEG bytes would be
 // stored under the image format and Read would return non-PNG data.
 func TestWriteImageAcceptsJPEG(t *testing.T) {
-	if degradesWithoutCgo() {
-		if val, ok := os.LookupEnv("CGO_ENABLED"); ok && val == "0" {
-			t.Skip("CGO_ENABLED is set to 0")
-		}
-	}
+	skipWithoutClipboard(t)
 	// Ensure the backend is initialized (selects Wayland vs X11); this test may
 	// run before TestClipboardInit, and Write/Read need the backend resolved.
 	if err := clipboard.Init(); err != nil {
