@@ -32,6 +32,7 @@ var (
 	class_NSPasteboard      = objc.GetClass("NSPasteboard")
 	class_NSData            = objc.GetClass("NSData")
 	class_NSString          = objc.GetClass("NSString")
+	class_NSArray           = objc.GetClass("NSArray")
 	class_NSAutoreleasePool = objc.GetClass("NSAutoreleasePool")
 
 	sel_alloc                = objc.RegisterName("alloc")
@@ -50,7 +51,23 @@ var (
 	sel_count                = objc.RegisterName("count")
 	sel_objectAtIndex        = objc.RegisterName("objectAtIndex:")
 	sel_UTF8String           = objc.RegisterName("UTF8String")
+	sel_propertyListForType  = objc.RegisterName("propertyListForType:")
+	sel_setPropertyListType  = objc.RegisterName("setPropertyList:forType:")
+	sel_arrayWithObjects     = objc.RegisterName("arrayWithObjects:count:")
 )
+
+// pbTypeFilenames is NSFilenamesPboardType, the pasteboard type holding a file
+// list as a property-list array of paths. It is spelled out rather than looked
+// up with dlsym because the constant's value is exactly this string, and the
+// symbol is deprecated.
+//
+// It is a legacy type, but it is the one that reads and writes a *whole* list in
+// a single call: NSPasteboardTypeFileURL holds one URL per pasteboard item, and
+// dataForType: only ever sees the first. macOS bridges the two — writing this
+// property list makes the system synthesize public.file-url items, and after
+// another application writes NSURLs this type returns their paths — so one call
+// interoperates in both directions (see specs/file-clipboard.md §3).
+const pbTypeFilenames = "NSFilenamesPboardType"
 
 func must(sym uintptr, err error) uintptr {
 	if err != nil {
@@ -161,6 +178,8 @@ func darwinFormatFor(t string) (Format, bool) {
 		return FmtText, true
 	case "public.png", "public.tiff":
 		return FmtImage, true
+	case pbTypeFilenames, "public.file-url":
+		return FmtFiles, true
 	}
 	if mime, ok := darwinMIMEForType(t); ok {
 		return Register(mime), true
@@ -194,6 +213,12 @@ func nsStringGo(s objc.ID) string {
 
 func read(t Format) (buf []byte, err error) {
 	switch t {
+	case FmtFiles:
+		paths := clipboard_read_filenames()
+		if len(paths) == 0 {
+			return nil, errUnavailable
+		}
+		return uriListFromPaths(paths), nil
 	case FmtText:
 		return clipboard_read_string(), nil
 	case FmtImage:
@@ -222,6 +247,9 @@ type darwinItem struct {
 	uti  string
 	name string
 	buf  []byte
+	// paths is set instead of buf for FmtFiles, which is stored as a property
+	// list of path strings rather than as data.
+	paths []string
 }
 
 // The UTIs behind the built-in pasteboard type constants, needed as plain
@@ -249,6 +277,9 @@ func writeAll(items []Item) (<-chan struct{}, error) {
 			d = darwinItem{typ: _NSPasteboardTypeString, uti: utiPlainText, buf: it.Bytes}
 		case FmtImage:
 			d = darwinItem{typ: _NSPasteboardTypePNG, uti: utiPNG, buf: it.Bytes}
+		case FmtFiles:
+			d = darwinItem{uti: pbTypeFilenames, name: pbTypeFilenames,
+				paths: pathsFromURIList(it.Bytes)}
 		default:
 			mime, found := formatMIME(it.Format)
 			if !found {
@@ -378,24 +409,67 @@ func clipboard_read_image() []byte {
 func clipboard_write_all(items []darwinItem) bool {
 	defer newAutoreleasePool()()
 
-	type entry struct{ typ, data objc.ID }
+	type entry struct{ typ, data, plist objc.ID }
 	entries := make([]entry, 0, len(items))
 	for _, it := range items {
 		typ := objc.ID(it.typ)
 		if typ == 0 {
 			typ = nsString(it.name)
 		}
-		entries = append(entries, entry{typ: typ, data: nsData(it.buf)})
+		e := entry{typ: typ}
+		if it.uti == pbTypeFilenames {
+			e.plist = nsStringArray(it.paths)
+		} else {
+			e.data = nsData(it.buf)
+		}
+		entries = append(entries, e)
 	}
 
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
 	pasteboard.Send(sel_clearContents)
 	for _, e := range entries {
+		if e.plist != 0 {
+			if pasteboard.Send(sel_setPropertyListType, e.plist, e.typ) == 0 {
+				return false
+			}
+			continue
+		}
 		if pasteboard.Send(sel_setDataForType, e.data, e.typ) == 0 {
 			return false
 		}
 	}
 	return true
+}
+
+// nsStringArray builds an autoreleased NSArray of NSStrings.
+func nsStringArray(ss []string) objc.ID {
+	ids := make([]objc.ID, len(ss))
+	for i, s := range ss {
+		ids[i] = nsString(s)
+	}
+	arr := objc.ID(class_NSArray).Send(sel_arrayWithObjects, unsafe.SliceData(ids), len(ids))
+	runtime.KeepAlive(ids)
+	return arr
+}
+
+// clipboard_read_filenames returns the file paths on the pasteboard, from the
+// property list under NSFilenamesPboardType. macOS populates that type from the
+// file URLs a modern application writes, so this reads either representation.
+func clipboard_read_filenames() []string {
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	list := pasteboard.Send(sel_propertyListForType, nsString(pbTypeFilenames))
+	if list == 0 {
+		return nil
+	}
+	n := int(list.Send(sel_count))
+	out := make([]string, 0, n)
+	for i := range n {
+		if p := nsStringGo(list.Send(sel_objectAtIndex, i)); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // nsData wraps a byte slice in an autoreleased NSData. An empty slice is passed

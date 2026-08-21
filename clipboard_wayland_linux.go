@@ -300,6 +300,11 @@ const (
 var (
 	textMIMEs  = []string{"text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "STRING", "TEXT"}
 	imageMIMEs = []string{"image/png"}
+	// text/uri-list is this format's portable encoding as well as the type
+	// file managers exchange, so no conversion is needed on Wayland. GNOME's
+	// Nautilus also publishes its own type alongside; only the standard one is
+	// claimed here, since the others are not uri-list bodies.
+	fileMIMEs = []string{"text/uri-list"}
 )
 
 // wlEncodeString encodes a Wayland string argument: a 32-bit length including
@@ -351,20 +356,13 @@ func (w *wlConn) requestFd(objID uint32, opcode uint16, payload []byte, fd int) 
 
 // wlRead reads the current clipboard selection for the given format.
 func wlRead(t Format) ([]byte, error) {
-	switch t {
-	case FmtText:
-		return wlReadSelection(textMIMEs)
-	case FmtImage:
-		return wlReadSelection(imageMIMEs)
-	default:
-		mime, ok := formatMIME(t)
-		if !ok {
-			return nil, errUnsupported
-		}
-		// Wayland advertises selections by MIME type, so a custom format's
-		// MIME string is offered/requested verbatim.
-		return wlReadSelection([]string{mime})
+	// Wayland advertises selections by MIME type, so a format's MIME string is
+	// offered and requested verbatim.
+	mimes, ok := wlMIMEsFor(t)
+	if !ok {
+		return nil, errUnsupported
 	}
+	return wlReadSelection(mimes)
 }
 
 // wlReadSelection connects to the compositor and reads the regular clipboard
@@ -629,6 +627,8 @@ func wlMIMEsFor(t Format) ([]string, bool) {
 		return textMIMEs, true
 	case FmtImage:
 		return imageMIMEs, true
+	case FmtFiles:
+		return fileMIMEs, true
 	default:
 		mime, ok := formatMIME(t)
 		if !ok {
@@ -776,19 +776,10 @@ func wlServeSend(w *wlConn, body []byte, data map[string][]byte) {
 // every change, so this is event-driven rather than polled.
 func wlWatch(ctx context.Context, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
-	var mimes []string
-	switch t {
-	case FmtText:
-		mimes = textMIMEs
-	case FmtImage:
-		mimes = imageMIMEs
-	default:
-		mime, ok := formatMIME(t)
-		if !ok {
-			close(recv)
-			return recv
-		}
-		mimes = []string{mime}
+	mimes, ok := wlMIMEsFor(t)
+	if !ok {
+		close(recv)
+		return recv
 	}
 
 	w, _, deviceID, err := wlConnectDevice()

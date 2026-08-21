@@ -45,6 +45,19 @@ format instead of using FmtImage; custom formats are raw passthrough:
 	jpg := clipboard.Register("image/jpeg")
 	clipboard.Write(jpg, jpegBytes)  // exact bytes, no conversion
 
+To copy or paste files — what a file manager puts on the clipboard when you
+press Ctrl+C on a selection — use WriteFiles and ReadFiles:
+
+	clipboard.WriteFiles("/home/me/report.pdf", "/home/me/notes.txt")
+
+	for _, path := range clipboard.ReadFiles() {
+		println(path)
+	}
+
+Each platform stores a file list its own way and FmtFiles translates between
+them, so the same code interoperates with Explorer, Finder, Nautilus and
+Dolphin. See FmtFiles for the details.
+
 To publish several representations of the same content at once — plain text
 and HTML from one copy, so the destination takes whichever it understands
 best — use WriteAll. Calling Write twice does not do this: each write
@@ -176,6 +189,19 @@ const (
 	// verbatim, register its MIME type as a custom format — Register("image/jpeg"),
 	// Register("image/svg+xml") — which is raw passthrough.
 	FmtImage
+	// FmtFiles indicates a list of file paths — what a file manager puts on
+	// the clipboard when you copy files. Its bytes are a text/uri-list body
+	// (RFC 2483): file URIs, one per line, separated by CRLF.
+	//
+	// Each platform stores a file list its own way (CF_HDROP on Windows,
+	// NSFilenamesPboardType on macOS, text/uri-list on X11 and Wayland) and
+	// this format translates between them, so the same code copies files
+	// everywhere. Use ReadFiles and WriteFiles to work in paths rather than
+	// URIs; Read and Write give the raw text/uri-list bytes.
+	//
+	// Desktop only: on iOS, Android and in CGO-disabled builds a file list is
+	// neither readable nor writable, and the API degrades as it does elsewhere.
+	FmtFiles
 )
 
 var (
@@ -350,6 +376,36 @@ func toPNG(buf []byte) []byte {
 	return out.Bytes()
 }
 
+// ReadFiles returns the paths of the files currently on the clipboard, or nil
+// if it holds no file list. It is Read(FmtFiles) with the text/uri-list body
+// parsed into paths:
+//
+//	for _, path := range clipboard.ReadFiles() {
+//		fmt.Println(path)
+//	}
+//
+// A URI that does not name a local file — a remote one, or a path this platform
+// cannot express — is skipped rather than guessed at, so the result can be
+// shorter than what the clipboard holds.
+func ReadFiles() []string {
+	buf := Read(FmtFiles)
+	if buf == nil {
+		return nil
+	}
+	return pathsFromURIList(buf)
+}
+
+// WriteFiles publishes a list of file paths, as copying files in a file manager
+// does. The paths must be absolute; a relative one has no unambiguous URI and
+// is dropped.
+//
+// It is Write(FmtFiles, ...) over a text/uri-list body, so it replaces the
+// clipboard and returns the same channel Write does. To publish a file list
+// alongside another format, use WriteAll with an FmtFiles item.
+func WriteFiles(paths ...string) <-chan struct{} {
+	return Write(FmtFiles, uriListFromPaths(paths))
+}
+
 // Data is a single observed clipboard change: the format the change was
 // detected in, together with the raw bytes encoded the same way Read
 // returns them (UTF-8 for FmtText, PNG for FmtImage).
@@ -362,12 +418,12 @@ type Data struct {
 // whenever any change of clipboard data in one of the desired formats
 // happens. Each received value carries the format it was detected in, so a
 // single Watch call can observe multiple formats at once. If no format is
-// given, all supported formats (FmtText and FmtImage) are observed.
+// given, all built-in formats (FmtText, FmtImage and FmtFiles) are observed.
 //
 // The returned channel will be closed once the given context is canceled.
 func Watch(ctx context.Context, t ...Format) <-chan Data {
 	if len(t) == 0 {
-		t = []Format{FmtText, FmtImage}
+		t = []Format{FmtText, FmtImage, FmtFiles}
 	}
 
 	out := make(chan Data)

@@ -17,8 +17,8 @@ import (
 var ErrNoData = errors.New("clipboard: no data available for the given format")
 
 // The custom-format registry maps a portable MIME-type string to an opaque
-// Format token (and back). The built-in FmtText and FmtImage tokens are not
-// part of the registry; custom tokens are allocated above them. Keeping the
+// Format token (and back). The built-in tokens are not part of the registry;
+// custom tokens are allocated above them. Keeping the
 // MIME identity here, behind the Format token, means no platform- or
 // Cgo-specific type ever leaks into user code: each backend resolves the MIME
 // string to its own native clipboard type (see formatMIME).
@@ -27,9 +27,8 @@ var (
 	mimeToFormat = map[string]Format{}
 	formatToMIME = map[Format]string{}
 	// nextFormat is the next custom token to hand out. Custom formats start
-	// immediately above the built-in tokens so they never collide with
-	// FmtText/FmtImage.
-	nextFormat = FmtImage + 1
+	// immediately above the built-in tokens so they never collide with them.
+	nextFormat = FmtFiles + 1
 )
 
 // Register maps a MIME type to a Format token usable with Read, Write, and
@@ -56,8 +55,8 @@ func Register(mime string) Format {
 }
 
 // formatMIME returns the MIME string a custom Format token was registered with.
-// The boolean result is false for the built-in FmtText/FmtImage tokens and for
-// any token that was never returned by Register. Backends call this in their
+// The boolean result is false for the built-in tokens and for any token that was
+// never returned by Register. Backends call this in their
 // read/write default case to resolve a custom token to a native clipboard type.
 func formatMIME(f Format) (string, bool) {
 	registryMu.RLock()
@@ -68,14 +67,17 @@ func formatMIME(f Format) (string, bool) {
 
 // MIME returns the MIME type that the Format f denotes. For the built-in
 // formats it returns a canonical type ("text/plain;charset=utf-8" for FmtText,
-// "image/png" for FmtImage); for a custom format it returns the string passed
-// to Register; for a token that was never registered it returns "".
+// "image/png" for FmtImage, "text/uri-list" for FmtFiles); for a custom format
+// it returns the string passed to Register; for a token that was never
+// registered it returns "".
 func (f Format) MIME() string {
 	switch f {
 	case FmtText:
 		return "text/plain;charset=utf-8"
 	case FmtImage:
 		return "image/png"
+	case FmtFiles:
+		return "text/uri-list"
 	}
 	if mime, ok := formatMIME(f); ok {
 		return mime
@@ -84,10 +86,10 @@ func (f Format) MIME() string {
 }
 
 // Formats reports the formats currently available on the clipboard, in a stable
-// order: FmtText then FmtImage (when present), followed by custom formats in
-// registration order. Custom MIME types discovered on the clipboard are
-// registered on demand, so every returned token can be passed straight to Read
-// (and its identity inspected with Format.MIME).
+// order: the built-ins first (FmtText, FmtImage, FmtFiles, when present),
+// followed by custom formats in registration order. Custom MIME types
+// discovered on the clipboard are registered on demand, so every returned token
+// can be passed straight to Read (and its identity inspected with Format.MIME).
 //
 // It returns an empty slice when the clipboard is empty or unavailable — for
 // example on iOS/Android or in a CGO-disabled build, where it degrades like the
@@ -98,9 +100,9 @@ func Formats() []Format {
 	return normalizeFormats(enumerateFormats())
 }
 
-// normalizeFormats de-duplicates tokens and returns them in a stable order:
-// the built-ins first (FmtText, then FmtImage), then custom tokens in ascending
-// token value, which is their registration order.
+// normalizeFormats de-duplicates tokens and returns them in a stable order: the
+// built-ins first, in declaration order, then custom tokens in ascending token
+// value, which is their registration order.
 func normalizeFormats(in []Format) []Format {
 	seen := make(map[Format]bool, len(in))
 	for _, f := range in {
@@ -108,7 +110,7 @@ func normalizeFormats(in []Format) []Format {
 	}
 
 	var out []Format
-	for _, b := range []Format{FmtText, FmtImage} {
+	for _, b := range []Format{FmtText, FmtImage, FmtFiles} {
 		if seen[b] {
 			out = append(out, b)
 			delete(seen, b)

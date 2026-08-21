@@ -422,6 +422,10 @@ func x11TargetFor(t Format) (string, bool) {
 		return "UTF8_STRING", true
 	case FmtImage:
 		return "image/png", true
+	case FmtFiles:
+		// text/uri-list is both the target atom other applications use and
+		// this format's portable encoding, so no conversion is needed here.
+		return "text/uri-list", true
 	default:
 		return formatMIME(t)
 	}
