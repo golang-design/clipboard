@@ -28,9 +28,13 @@ func initialize() error { return nil }
 
 // enumerateFormats reports the formats on the clipboard. The iOS bridge exposes
 // only text and no enumeration API, so Formats() returns empty.
-func enumerateFormats() []Format { return nil }
+func enumerateFormats(sel selection) []Format { return nil }
 
-func read(t Format) (buf []byte, err error) {
+func read(sel selection, t Format) (buf []byte, err error) {
+	if sel == selPrimary {
+		// No primary selection on this platform (see FromPrimary).
+		return nil, errUnsupported
+	}
 	switch t {
 	case FmtText:
 		return []byte(C.GoString(C.clipboard_read_string())), nil
@@ -44,7 +48,12 @@ func read(t Format) (buf []byte, err error) {
 }
 
 // SetContent sets the clipboard content for iOS
-func write(t Format, buf []byte) (<-chan struct{}, error) {
+func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
+	if sel == selPrimary {
+		// No primary selection here, and redirecting to the ordinary clipboard
+		// would destroy what the user had copied (see FromPrimary).
+		return nil, errUnsupported
+	}
 	done := make(chan struct{}, 1)
 	switch t {
 	case FmtText:
@@ -66,14 +75,14 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 // multi-representation clipboard, and writing each item in turn would be worse
 // than useless: every write replaces the last, so the *least* preferred
 // representation would win — the reverse of what the caller asked for (#151).
-func writeAll(items []Item) (<-chan struct{}, error) {
-	return write(items[0].Format, items[0].Bytes)
+func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+	return write(sel, items[0].Format, items[0].Bytes)
 }
 
-func watch(ctx context.Context, t Format) <-chan []byte {
+func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
-	last := Read(t)
+	last := Read(t, withSelection(sel))
 	go func() {
 		defer ti.Stop()
 		for {
@@ -82,7 +91,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				b := Read(t)
+				b := Read(t, withSelection(sel))
 				if b == nil {
 					continue
 				}

@@ -259,7 +259,18 @@ func x11Test() error {
 }
 
 // x11Read reads the CLIPBOARD selection in the given target format.
-func x11Read(target string) ([]byte, error) {
+// x11SelectionAtom names the X11 selection a Format operation acts on. X11
+// selections are a general mechanism and CLIPBOARD is only one atom, so reaching
+// the primary selection is a matter of naming a different one — everything else,
+// ownership included, is identical.
+func x11SelectionAtom(sel selection) string {
+	if sel == selPrimary {
+		return "PRIMARY"
+	}
+	return "CLIPBOARD"
+}
+
+func x11Read(sel selection, target string) ([]byte, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
@@ -267,14 +278,14 @@ func x11Read(target string) ([]byte, error) {
 	defer x.Close()
 	x.c.SetReadDeadline(time.Now().Add(x11ReadTimeout))
 
-	sel, e1 := x.intern("CLIPBOARD")
+	selAtom, e1 := x.intern(x11SelectionAtom(sel))
 	prop, e2 := x.intern("GOLANG_DESIGN_DATA")
 	tgt, e3 := x.intern(target)
 	if e1 != nil || e2 != nil || e3 != nil {
 		return nil, errUnavailable
 	}
 
-	if _, err := x.send(x11wire.ConvertSelection(x.win, sel, tgt, prop, x11wire.CurrentTime)); err != nil {
+	if _, err := x.send(x11wire.ConvertSelection(x.win, selAtom, tgt, prop, x11wire.CurrentTime)); err != nil {
 		return nil, errUnavailable
 	}
 	for {
@@ -324,7 +335,7 @@ func (x *x11conn) atomName(atom uint32) (string, error) {
 // x11Targets returns the target names the current CLIPBOARD selection advertises
 // (via the TARGETS target), or nil if the clipboard is empty. The TARGETS
 // property is a list of 4-byte atom ids, each resolved back to its name.
-func x11Targets() ([]string, error) {
+func x11Targets(sel selection) ([]string, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
@@ -332,14 +343,14 @@ func x11Targets() ([]string, error) {
 	defer x.Close()
 	x.c.SetReadDeadline(time.Now().Add(x11ReadTimeout))
 
-	sel, e1 := x.intern("CLIPBOARD")
+	selAtom, e1 := x.intern(x11SelectionAtom(sel))
 	prop, e2 := x.intern("GOLANG_DESIGN_DATA")
 	tgts, e3 := x.intern("TARGETS")
 	if e1 != nil || e2 != nil || e3 != nil {
 		return nil, errUnavailable
 	}
 
-	if _, err := x.send(x11wire.ConvertSelection(x.win, sel, tgts, prop, x11wire.CurrentTime)); err != nil {
+	if _, err := x.send(x11wire.ConvertSelection(x.win, selAtom, tgts, prop, x11wire.CurrentTime)); err != nil {
 		return nil, errUnavailable
 	}
 	for {
@@ -379,8 +390,8 @@ func x11Targets() ([]string, error) {
 
 // x11EnumerateFormats maps the advertised TARGETS to Format tokens, registering
 // custom MIME types on demand. Shared by the Linux and BSD backends.
-func x11EnumerateFormats() []Format {
-	names, err := x11Targets()
+func x11EnumerateFormats(sel selection) []Format {
+	names, err := x11Targets(sel)
 	if err != nil {
 		return nil
 	}
@@ -443,7 +454,7 @@ func x11TargetFor(t Format) (string, bool) {
 // x11WritePayloads resolves items to their selection targets and takes
 // ownership serving all of them. It is the X11 half of writeAll, shared by the
 // Linux and BSD backends.
-func x11WritePayloads(items []Item) (<-chan struct{}, error) {
+func x11WritePayloads(sel selection, items []Item) (<-chan struct{}, error) {
 	payloads := make([]x11Payload, 0, len(items))
 	// Two different tokens can resolve to the same target — FmtImage and
 	// Register("image/png") are both image/png — and TARGETS should advertise
@@ -460,7 +471,7 @@ func x11WritePayloads(items []Item) (<-chan struct{}, error) {
 		seen[target] = true
 		payloads = append(payloads, x11Payload{target: target, buf: it.Bytes})
 	}
-	return x11WriteAll(payloads)
+	return x11WriteAll(sel, payloads)
 }
 
 // x11Target is one advertised selection target: the atom a requestor asks for,
@@ -476,8 +487,8 @@ type x11Payload struct {
 	buf    []byte
 }
 
-func x11Write(target string, buf []byte) (<-chan struct{}, error) {
-	return x11WriteAll([]x11Payload{{target: target, buf: buf}})
+func x11Write(sel selection, target string, buf []byte) (<-chan struct{}, error) {
+	return x11WriteAll(sel, []x11Payload{{target: target, buf: buf}})
 }
 
 // x11WriteAll takes ownership of the CLIPBOARD selection once and serves every
@@ -485,13 +496,13 @@ func x11Write(target string, buf []byte) (<-chan struct{}, error) {
 // ownership is inherently multi-target — a requestor names the target it wants —
 // so publishing several representations is one owner with a longer list, not
 // several owners racing for the selection.
-func x11WriteAll(payloads []x11Payload) (<-chan struct{}, error) {
+func x11WriteAll(sel selection, payloads []x11Payload) (<-chan struct{}, error) {
 	x, err := x11Connect()
 	if err != nil {
 		return nil, errUnavailable
 	}
 
-	sel, e1 := x.intern("CLIPBOARD")
+	selAtom, e1 := x.intern(x11SelectionAtom(sel))
 	targets, e2 := x.intern("TARGETS")
 	if e1 != nil || e2 != nil {
 		x.Close()
@@ -507,11 +518,11 @@ func x11WriteAll(payloads []x11Payload) (<-chan struct{}, error) {
 		tgts = append(tgts, x11Target{atom: atom, buf: p.buf})
 	}
 
-	if _, err := x.send(x11wire.SetSelectionOwner(x.win, sel, x11wire.CurrentTime)); err != nil {
+	if _, err := x.send(x11wire.SetSelectionOwner(x.win, selAtom, x11wire.CurrentTime)); err != nil {
 		x.Close()
 		return nil, errUnavailable
 	}
-	gseq, err := x.send(x11wire.GetSelectionOwner(sel))
+	gseq, err := x.send(x11wire.GetSelectionOwner(selAtom))
 	if err != nil {
 		x.Close()
 		return nil, errUnavailable
@@ -525,7 +536,7 @@ func x11WriteAll(payloads []x11Payload) (<-chan struct{}, error) {
 	done := make(chan struct{}, 1)
 	go func() {
 		defer x.Close()
-		x.serveSelection(sel, targets, tgts)
+		x.serveSelection(selAtom, targets, tgts)
 		done <- struct{}{}
 		close(done)
 	}()

@@ -33,7 +33,7 @@ func TestWaylandFiles(t *testing.T) {
 	}
 
 	paths := []string{"/tmp/a file.txt", "/tmp/ünïcode.txt"}
-	if _, err := wlWriteAll([]Item{
+	if _, err := wlWriteAll(selClipboard, []Item{
 		{Format: FmtFiles, Bytes: uriListFromPaths(paths)},
 	}); err != nil {
 		t.Fatalf("wlWriteAll: %v", err)

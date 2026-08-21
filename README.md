@@ -14,6 +14,7 @@ import "golang.design/x/clipboard"
 - Copy/paste PNG-encoded images (Desktop-only); `Write` also accepts other encodings when their decoder is registered
 - Register and copy/paste custom MIME-typed formats (Desktop-only, raw passthrough)
 - Copy/paste files (`FmtFiles`), the way a file manager does
+- Read, write and watch the X11/Wayland primary (middle-click) selection
 - Publish several formats in one copy (`WriteAll`), e.g. `text/html` + `text/plain`
 - Watch the clipboard for changes (event-driven on Wayland and Windows)
 - Discover what's on the clipboard with `Formats()` / `Format.MIME` (Desktop-only)
@@ -71,11 +72,25 @@ case <-changed:
 }
 ```
 
+On X11 and Wayland there are **two** clipboards: the Ctrl+C one, and the
+*primary selection*, which holds whatever was last selected with the mouse and
+is pasted with the middle button. `FromPrimary()` reaches the second one, and
+every operation accepts it:
+
+```go
+sel := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary())
+clipboard.Write(clipboard.FmtText, []byte("hi"), clipboard.FromPrimary())
+ch := clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
+```
+
+Windows and macOS have no second clipboard, so a primary read returns `nil` and
+a primary write is a no-op there.
+
 To copy or paste **files** — what a file manager puts on the clipboard when you
 press Ctrl+C on a selection — use `WriteFiles` and `ReadFiles`:
 
 ```go
-clipboard.WriteFiles("/home/me/report.pdf", "/home/me/notes.txt")
+clipboard.WriteFiles([]string{"/home/me/report.pdf", "/home/me/notes.txt"})
 
 for _, path := range clipboard.ReadFiles() {
       println(path)
@@ -281,9 +296,12 @@ accessing system clipboards, but here are a few details you might need to know.
   written data available after your program exits, keep the process
   running (the channel returned by `Write` reports when the data is no
   longer needed) or rely on a clipboard manager.
-- **Linux/X11 selection.** Only the `CLIPBOARD` selection (Ctrl+C/Ctrl+V)
-  is accessed; the `PRIMARY` selection (middle-click paste) is not
-  supported.
+- **Primary selection.** `FromPrimary()` reaches the middle-click selection on
+  X11 and Wayland. On Wayland it needs a compositor offering version 2 of a
+  data-control manager; below that, and on Windows and macOS, a primary read
+  returns `nil` and a primary write is a no-op — deliberately not redirected to
+  the ordinary clipboard, which would destroy what the user had copied. The X11
+  `SECONDARY` selection is not exposed.
 - **File lists.** `FmtFiles` carries paths, not file contents: copying a file
   puts its path on the clipboard, and the file itself must still exist when the
   paste happens. The "cut" flag Explorer sets alongside `CF_HDROP` to mean move
@@ -309,7 +327,7 @@ accessing system clipboards, but here are a few details you might need to know.
   which works without keyboard focus. Compositors that do not implement
   `ext-data-control-v1` or `zwlr_data_control_manager_v1` (e.g. GNOME
   before 49) are not supported natively; the package falls back to X11 via
-  XWayland there. The `PRIMARY` selection is not exposed on Wayland either.
+  XWayland there.
 
 ### Screenshot
 

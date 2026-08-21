@@ -10,13 +10,17 @@ func initialize() error {
 
 // enumerateFormats reports the formats on the clipboard. In a CGO-disabled
 // build the clipboard is unavailable, so Formats() returns empty.
-func enumerateFormats() []Format { return nil }
+func enumerateFormats(sel selection) []Format { return nil }
 
 // read returns errNoCgo for every format, including custom ones registered via
 // Register: in a CGO-disabled build the clipboard is unavailable, so the public
 // API degrades gracefully (Read returns nil, Write returns nil) rather than
 // panicking.
-func read(t Format) (buf []byte, err error) {
+func read(sel selection, t Format) (buf []byte, err error) {
+	if sel == selPrimary {
+		// No primary selection on this platform (see FromPrimary).
+		return nil, errUnsupported
+	}
 	return nil, errNoCgo
 }
 
@@ -24,7 +28,12 @@ func readc(t string) ([]byte, error) {
 	return nil, errNoCgo
 }
 
-func write(t Format, buf []byte) (<-chan struct{}, error) {
+func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
+	if sel == selPrimary {
+		// No primary selection here, and redirecting to the ordinary clipboard
+		// would destroy what the user had copied (see FromPrimary).
+		return nil, errUnsupported
+	}
 	return nil, errNoCgo
 }
 
@@ -32,11 +41,11 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 // multi-representation clipboard, and writing each item in turn would be worse
 // than useless: every write replaces the last, so the *least* preferred
 // representation would win — the reverse of what the caller asked for (#151).
-func writeAll(items []Item) (<-chan struct{}, error) {
-	return write(items[0].Format, items[0].Bytes)
+func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+	return write(sel, items[0].Format, items[0].Bytes)
 }
 
-func watch(ctx context.Context, t Format) <-chan []byte {
+func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	// The clipboard is unavailable in a CGO-disabled build. Return a
 	// closed channel so that receivers observe completion immediately
 	// instead of blocking forever, consistent with the documented

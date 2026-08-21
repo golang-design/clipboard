@@ -65,7 +65,7 @@ func TestWaylandReadText(t *testing.T) {
 	}
 	time.Sleep(200 * time.Millisecond) // let wl-copy acquire selection ownership
 
-	got, err := wlRead(FmtText)
+	got, err := wlRead(selClipboard, FmtText)
 	if err != nil {
 		t.Fatalf("wlRead: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestWaylandWriteText(t *testing.T) {
 	}
 
 	const want = "hello-wayland-write"
-	done, err := wlWrite(FmtText, []byte(want))
+	done, err := wlWrite(selClipboard, FmtText, []byte(want))
 	if err != nil {
 		t.Fatalf("wlWrite: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestWaylandWatch(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch := wlWatch(ctx, FmtText)
+	ch := wlWatch(ctx, selClipboard, FmtText)
 	time.Sleep(300 * time.Millisecond) // let the watcher connect and baseline
 
 	for _, want := range []string{"wl-watch-1", "wl-watch-2"} {

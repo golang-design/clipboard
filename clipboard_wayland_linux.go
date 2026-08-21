@@ -70,6 +70,9 @@ type wlConn struct {
 	nextID uint32
 	rbuf   []byte
 	fds    []int
+	// dataControlVersion is the interface version the manager was bound at,
+	// which decides whether the primary selection is reachable.
+	dataControlVersion uint32
 }
 
 // wlConnect dials the Wayland display socket.
@@ -282,9 +285,17 @@ const (
 	mgrOpcodeGetDataDevice    = 1
 	// device requests
 	devOpcodeSetSelection = 0
+	// set_primary_selection arrived in version 2 of zwlr_data_control_device_v1
+	// and is present in ext_data_control_device_v1 from the start.
+	devOpcodeSetPrimarySelection = 2
 	// device events
 	devEvtDataOffer = 0
 	devEvtSelection = 1
+	// primary_selection is the selection event's sibling, differing only by
+	// opcode — which is why the event loops must dispatch on the exact opcode
+	// for the selection they were asked for, or they hand back the other
+	// clipboard's data.
+	devEvtPrimarySelection = 3
 	// offer
 	offerOpcodeReceive = 0
 	offerOpcodeDestroy = 1
@@ -295,6 +306,26 @@ const (
 	srcEvtSend      = 0
 	srcEvtCancelled = 1
 )
+
+// dataControlVersion is the interface version to bind. Version 2 adds the
+// primary selection; anything below it can still serve the ordinary clipboard.
+const dataControlVersion = 2
+
+// wlSelectionEvt is the device event announcing the current offer for sel.
+func wlSelectionEvt(sel selection) uint16 {
+	if sel == selPrimary {
+		return devEvtPrimarySelection
+	}
+	return devEvtSelection
+}
+
+// wlSetSelectionOp is the device request that takes ownership of sel.
+func wlSetSelectionOp(sel selection) uint16 {
+	if sel == selPrimary {
+		return devOpcodeSetPrimarySelection
+	}
+	return devOpcodeSetSelection
+}
 
 // MIME types we map each Format to, in order of preference when reading.
 var (
@@ -355,21 +386,21 @@ func (w *wlConn) requestFd(objID uint32, opcode uint16, payload []byte, fd int) 
 }
 
 // wlRead reads the current clipboard selection for the given format.
-func wlRead(t Format) ([]byte, error) {
+func wlRead(sel selection, t Format) ([]byte, error) {
 	// Wayland advertises selections by MIME type, so a format's MIME string is
 	// offered and requested verbatim.
 	mimes, ok := wlMIMEsFor(t)
 	if !ok {
 		return nil, errUnsupported
 	}
-	return wlReadSelection(mimes)
+	return wlReadSelection(sel, mimes)
 }
 
 // wlReadSelection connects to the compositor and reads the regular clipboard
 // selection, returning the bytes for the first of mimes the current offer
 // provides. It returns (nil, nil) if the clipboard is empty or holds none of
 // the requested types.
-func wlReadSelection(mimes []string) ([]byte, error) {
+func wlReadSelection(sel selection, mimes []string) ([]byte, error) {
 	w, _, deviceID, err := wlConnectDevice()
 	if err != nil {
 		return nil, err
@@ -381,9 +412,14 @@ func wlReadSelection(mimes []string) ([]byte, error) {
 		return nil, err
 	}
 
+	if sel == selPrimary && !w.supportsPrimary() {
+		return nil, errUnsupported
+	}
+	wantEvt := wlSelectionEvt(sel)
+
 	// Collect the offers the device announces and the current selection.
 	offers := make(map[uint32][]string)
-	var selection uint32
+	var current uint32
 	for {
 		obj, op, body, err := w.readEvent()
 		if err != nil {
@@ -394,8 +430,8 @@ func wlReadSelection(mimes []string) ([]byte, error) {
 			return nil, wlDisplayError(body)
 		case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
 			offers[binary.LittleEndian.Uint32(body[0:])] = nil
-		case obj == deviceID && op == devEvtSelection && len(body) >= 4:
-			selection = binary.LittleEndian.Uint32(body[0:])
+		case obj == deviceID && op == wantEvt && len(body) >= 4:
+			current = binary.LittleEndian.Uint32(body[0:])
 		case op == offerEvtOffer:
 			if _, isOffer := offers[obj]; isOffer {
 				if mime, _, err := wlString(body, 0); err == nil {
@@ -407,15 +443,15 @@ func wlReadSelection(mimes []string) ([]byte, error) {
 			break
 		}
 	}
-	if selection == 0 {
+	if current == 0 {
 		return nil, nil // empty clipboard
 	}
 
-	chosen := pickMIME(mimes, offers[selection])
+	chosen := pickMIME(mimes, offers[current])
 	if chosen == "" {
 		return nil, nil // none of the requested formats are available
 	}
-	data, err := wlReceiveOffer(w, selection, chosen)
+	data, err := wlReceiveOffer(w, current, chosen)
 	if err != nil {
 		return nil, err
 	}
@@ -428,12 +464,17 @@ func wlReadSelection(mimes []string) ([]byte, error) {
 // wlSelectionMIMEs returns the MIME types advertised by the current clipboard
 // selection, or nil if the clipboard is empty. It mirrors wlReadSelection's
 // offer-collection but returns the type list instead of receiving data.
-func wlSelectionMIMEs() ([]string, error) {
+func wlSelectionMIMEs(sel selection) ([]string, error) {
 	w, _, deviceID, err := wlConnectDevice()
 	if err != nil {
 		return nil, err
 	}
 	defer w.Close()
+
+	if sel == selPrimary && !w.supportsPrimary() {
+		return nil, errUnsupported
+	}
+	wantEvt := wlSelectionEvt(sel)
 
 	sync2, err := w.sync()
 	if err != nil {
@@ -441,7 +482,7 @@ func wlSelectionMIMEs() ([]string, error) {
 	}
 
 	offers := make(map[uint32][]string)
-	var selection uint32
+	var current uint32
 	for {
 		obj, op, body, err := w.readEvent()
 		if err != nil {
@@ -452,8 +493,8 @@ func wlSelectionMIMEs() ([]string, error) {
 			return nil, wlDisplayError(body)
 		case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
 			offers[binary.LittleEndian.Uint32(body[0:])] = nil
-		case obj == deviceID && op == devEvtSelection && len(body) >= 4:
-			selection = binary.LittleEndian.Uint32(body[0:])
+		case obj == deviceID && op == wantEvt && len(body) >= 4:
+			current = binary.LittleEndian.Uint32(body[0:])
 		case op == offerEvtOffer:
 			if _, isOffer := offers[obj]; isOffer {
 				if mime, _, err := wlString(body, 0); err == nil {
@@ -465,16 +506,16 @@ func wlSelectionMIMEs() ([]string, error) {
 			break
 		}
 	}
-	if selection == 0 {
+	if current == 0 {
 		return nil, nil
 	}
-	return offers[selection], nil
+	return offers[current], nil
 }
 
 // wlEnumerateFormats maps the MIME types of the current selection to Format
 // tokens, registering custom types on demand.
-func wlEnumerateFormats() []Format {
-	mimes, err := wlSelectionMIMEs()
+func wlEnumerateFormats(sel selection) []Format {
+	mimes, err := wlSelectionMIMEs(sel)
 	if err != nil {
 		return nil
 	}
@@ -599,7 +640,15 @@ func wlConnectDevice() (w *wlConn, managerID, deviceID uint32, err error) {
 		w.Close()
 		return nil, 0, 0, errUnavailable
 	}
-	if managerID, err = w.bind(registryID, mgr.name, mgrIface, 1); err != nil {
+	// Bind the highest version the compositor advertises, capped at what this
+	// package understands. Below dataControlVersion the primary selection is
+	// unavailable, which wlPrimaryAvailable reports without failing the
+	// ordinary clipboard.
+	bindVersion := mgr.version
+	if bindVersion > dataControlVersion {
+		bindVersion = dataControlVersion
+	}
+	if managerID, err = w.bind(registryID, mgr.name, mgrIface, bindVersion); err != nil {
 		w.Close()
 		return nil, 0, 0, err
 	}
@@ -618,15 +667,20 @@ func wlConnectDevice() (w *wlConn, managerID, deviceID uint32, err error) {
 		w.Close()
 		return nil, 0, 0, err
 	}
+	w.dataControlVersion = bindVersion
 	return w, managerID, deviceID, nil
 }
+
+// supportsPrimary reports whether the bound data-control interface is new enough
+// for the primary selection.
+func (w *wlConn) supportsPrimary() bool { return w.dataControlVersion >= dataControlVersion }
 
 // wlWrite sets the clipboard selection to data for the given format and serves
 // paste requests until ownership is lost. It returns a channel that is closed
 // when the selection is replaced (the source's cancelled event) or the
 // connection ends, matching the package Write contract.
-func wlWrite(t Format, data []byte) (<-chan struct{}, error) {
-	return wlWriteAll([]Item{{Format: t, Bytes: data}})
+func wlWrite(sel selection, t Format, data []byte) (<-chan struct{}, error) {
+	return wlWriteAll(sel, []Item{{Format: t, Bytes: data}})
 }
 
 // wlMIMEsFor returns the MIME types a format is advertised under. The built-ins
@@ -652,7 +706,7 @@ func wlMIMEsFor(t Format) ([]string, bool) {
 // serves whichever one a requestor names (#151). One source carries the whole
 // set, so the selection is replaced by all of them at once; a source per item
 // would instead have each set_selection cancel the last.
-func wlWriteAll(items []Item) (<-chan struct{}, error) {
+func wlWriteAll(sel selection, items []Item) (<-chan struct{}, error) {
 	var mimes []string
 	// data maps each advertised MIME type to the bytes to serve for it. The
 	// first item claiming a type keeps it, matching the caller's ordering.
@@ -675,6 +729,10 @@ func wlWriteAll(items []Item) (<-chan struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if sel == selPrimary && !w.supportsPrimary() {
+		w.Close()
+		return nil, errUnsupported
+	}
 
 	// manager.create_data_source(new_id)
 	sourceID := w.newID()
@@ -691,9 +749,9 @@ func wlWriteAll(items []Item) (<-chan struct{}, error) {
 			return nil, err
 		}
 	}
-	// device.set_selection(source)
+	// device.set_selection(source), or its primary-selection sibling
 	binary.LittleEndian.PutUint32(arg, sourceID)
-	if err := w.request(deviceID, devOpcodeSetSelection, arg); err != nil {
+	if err := w.request(deviceID, wlSetSelectionOp(sel), arg); err != nil {
 		w.Close()
 		return nil, err
 	}
@@ -784,7 +842,7 @@ func wlServeSend(w *wlConn, body []byte, data map[string][]byte) {
 // each new value on the returned channel until ctx is cancelled (then the
 // channel is closed). The data-control device reports a selection event on
 // every change, so this is event-driven rather than polled.
-func wlWatch(ctx context.Context, t Format) <-chan []byte {
+func wlWatch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	mimes, ok := wlMIMEsFor(t)
 	if !ok {
@@ -798,24 +856,31 @@ func wlWatch(ctx context.Context, t Format) <-chan []byte {
 		return recv
 	}
 
+	if sel == selPrimary && !w.supportsPrimary() {
+		w.Close()
+		close(recv)
+		return recv
+	}
+	wantEvt := wlSelectionEvt(sel)
+
 	offers := make(map[uint32][]string)
 	// fetch resolves the data for a selection event: it forgets stale offers,
 	// then reads the current selection's bytes (nil if empty or unsupported).
-	fetch := func(sel uint32) []byte {
+	fetch := func(offerID uint32) []byte {
 		for id := range offers {
-			if id != sel {
+			if id != offerID {
 				w.request(id, offerOpcodeDestroy, nil)
 				delete(offers, id)
 			}
 		}
-		if sel == 0 {
+		if offerID == 0 {
 			return nil
 		}
-		chosen := pickMIME(mimes, offers[sel])
+		chosen := pickMIME(mimes, offers[offerID])
 		if chosen == "" {
 			return nil
 		}
-		d, err := wlReceiveOffer(w, sel, chosen)
+		d, err := wlReceiveOffer(w, offerID, chosen)
 		if err != nil || len(d) == 0 {
 			return nil
 		}
@@ -849,7 +914,7 @@ baseline:
 			break baseline
 		case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
 			offers[binary.LittleEndian.Uint32(body[0:])] = nil
-		case obj == deviceID && op == devEvtSelection && len(body) >= 4:
+		case obj == deviceID && op == wantEvt && len(body) >= 4:
 			last = fetch(binary.LittleEndian.Uint32(body[0:]))
 		case op == offerEvtOffer:
 			if _, isOffer := offers[obj]; isOffer {
@@ -878,7 +943,7 @@ baseline:
 				return
 			case obj == deviceID && op == devEvtDataOffer && len(body) >= 4:
 				offers[binary.LittleEndian.Uint32(body[0:])] = nil
-			case obj == deviceID && op == devEvtSelection && len(body) >= 4:
+			case obj == deviceID && op == wantEvt && len(body) >= 4:
 				data := fetch(binary.LittleEndian.Uint32(body[0:]))
 				if bytes.Equal(data, last) {
 					continue

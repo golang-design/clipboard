@@ -35,7 +35,7 @@ func TestWaylandWriteAll(t *testing.T) {
 	const mime = "application/x.golang-design.clipboard-wl-writeall"
 	plain := []byte("plain text")
 
-	if _, err := wlWriteAll([]Item{
+	if _, err := wlWriteAll(selClipboard, []Item{
 		{Format: Register(mime), Bytes: rawCustom},
 		{Format: FmtText, Bytes: plain},
 	}); err != nil {

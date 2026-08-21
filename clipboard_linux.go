@@ -54,43 +54,43 @@ func initialize() error {
 
 // enumerateFormats reports the formats currently on the clipboard, via the
 // Wayland data-control offer or the X11 TARGETS list.
-func enumerateFormats() []Format {
+func enumerateFormats(sel selection) []Format {
 	if useWayland {
-		return wlEnumerateFormats()
+		return wlEnumerateFormats(sel)
 	}
-	return x11EnumerateFormats()
+	return x11EnumerateFormats(sel)
 }
 
-func read(t Format) (buf []byte, err error) {
+func read(sel selection, t Format) (buf []byte, err error) {
 	if useWayland {
-		return wlRead(t)
+		return wlRead(sel, t)
 	}
 	target, ok := x11TargetFor(t)
 	if !ok {
 		return nil, errUnsupported
 	}
 	// On X11 a MIME type is used directly as the target atom.
-	return x11Read(target)
+	return x11Read(sel, target)
 }
 
-func write(t Format, buf []byte) (<-chan struct{}, error) {
-	return writeAll([]Item{{Format: t, Bytes: buf}})
+func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
+	return writeAll(sel, []Item{{Format: t, Bytes: buf}})
 }
 
-func writeAll(items []Item) (<-chan struct{}, error) {
+func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
 	if useWayland {
-		return wlWriteAll(items)
+		return wlWriteAll(sel, items)
 	}
-	return x11WritePayloads(items)
+	return x11WritePayloads(sel, items)
 }
 
-func watch(ctx context.Context, t Format) <-chan []byte {
+func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	if useWayland {
-		return wlWatch(ctx, t)
+		return wlWatch(ctx, sel, t)
 	}
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
-	last := Read(t)
+	last := Read(t, withSelection(sel))
 	go func() {
 		defer ti.Stop()
 		for {
@@ -99,7 +99,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				b := Read(t)
+				b := Read(t, withSelection(sel))
 				if b == nil {
 					continue
 				}

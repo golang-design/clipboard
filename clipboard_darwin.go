@@ -109,7 +109,10 @@ func newAutoreleasePool() (drain func()) {
 
 // enumerateFormats reports the formats currently on the clipboard by reading the
 // general pasteboard's advertised types and mapping each to a Format.
-func enumerateFormats() []Format {
+func enumerateFormats(sel selection) []Format {
+	if sel == selPrimary {
+		return nil
+	}
 	defer newAutoreleasePool()()
 	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
 	types := pasteboard.Send(sel_types)
@@ -211,7 +214,11 @@ func nsStringGo(s objc.ID) string {
 	return string(b)
 }
 
-func read(t Format) (buf []byte, err error) {
+func read(sel selection, t Format) (buf []byte, err error) {
+	if sel == selPrimary {
+		// This platform has no primary selection (see FromPrimary).
+		return nil, errUnsupported
+	}
 	switch t {
 	case FmtFiles:
 		paths := clipboard_read_filenames()
@@ -234,8 +241,8 @@ func read(t Format) (buf []byte, err error) {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t Format, buf []byte) (<-chan struct{}, error) {
-	return writeAll([]Item{{Format: t, Bytes: buf}})
+func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
+	return writeAll(sel, []Item{{Format: t, Bytes: buf}})
 }
 
 // darwinItem is an Item resolved to the pasteboard type it is written under:
@@ -264,7 +271,13 @@ const (
 // set replaces the pasteboard together (#151). NSPasteboard is built for this:
 // a generation holds as many types as it is given, and a consumer picks the
 // first it understands.
-func writeAll(items []Item) (<-chan struct{}, error) {
+func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+	if sel == selPrimary {
+		// This platform has no primary selection. Refusing is deliberate:
+		// writing to the ordinary clipboard instead would destroy whatever the
+		// user had copied (see FromPrimary).
+		return nil, errUnsupported
+	}
 	out := make([]darwinItem, 0, len(items))
 	// Two different tokens can resolve to the same pasteboard type, and a second
 	// store under a type would overwrite the first — inverting the rule that an
@@ -316,7 +329,14 @@ func writeAll(items []Item) (<-chan struct{}, error) {
 	return changed, nil
 }
 
-func watch(ctx context.Context, t Format) <-chan []byte {
+func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
+	if sel == selPrimary {
+		// No primary selection on macOS: nothing will ever be delivered, so say
+		// so by closing rather than leaving the caller waiting.
+		recv := make(chan []byte)
+		close(recv)
+		return recv
+	}
 	recv := make(chan []byte, 1)
 	// not sure if we are too slow or the user too fast :)
 	ti := time.NewTicker(time.Second)
@@ -331,7 +351,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 			case <-ti.C:
 				this := clipboard_change_count()
 				if lastCount != this {
-					b := Read(t)
+					b := Read(t, withSelection(sel))
 					if b == nil {
 						continue
 					}

@@ -41,29 +41,29 @@ func initialize() error {
 
 // enumerateFormats reports the formats currently on the clipboard via the shared
 // X11 TARGETS enumeration.
-func enumerateFormats() []Format { return x11EnumerateFormats() }
+func enumerateFormats(sel selection) []Format { return x11EnumerateFormats(sel) }
 
-func read(t Format) (buf []byte, err error) {
+func read(sel selection, t Format) (buf []byte, err error) {
 	target, ok := x11TargetFor(t)
 	if !ok {
 		return nil, errUnsupported
 	}
 	// On X11 a MIME type is used directly as the target atom.
-	return x11Read(target)
+	return x11Read(sel, target)
 }
 
-func write(t Format, buf []byte) (<-chan struct{}, error) {
-	return writeAll([]Item{{Format: t, Bytes: buf}})
+func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
+	return writeAll(sel, []Item{{Format: t, Bytes: buf}})
 }
 
-func writeAll(items []Item) (<-chan struct{}, error) {
-	return x11WritePayloads(items)
+func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+	return x11WritePayloads(sel, items)
 }
 
-func watch(ctx context.Context, t Format) <-chan []byte {
+func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
-	last := Read(t)
+	last := Read(t, withSelection(sel))
 	go func() {
 		defer ti.Stop()
 		for {
@@ -72,7 +72,7 @@ func watch(ctx context.Context, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				b := Read(t)
+				b := Read(t, withSelection(sel))
 				if b == nil {
 					continue
 				}

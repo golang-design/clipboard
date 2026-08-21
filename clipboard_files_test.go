@@ -63,7 +63,7 @@ func TestWriteReadFiles(t *testing.T) {
 	filesReady(t)
 
 	want := testPaths(t)
-	if ch := clipboard.WriteFiles(want...); ch == nil {
+	if ch := clipboard.WriteFiles(want); ch == nil {
 		t.Fatal("WriteFiles reported failure")
 	}
 
@@ -78,7 +78,7 @@ func TestWriteReadFiles(t *testing.T) {
 func TestFilesFormatIsEnumerated(t *testing.T) {
 	filesReady(t)
 
-	clipboard.WriteFiles(testPaths(t)...)
+	clipboard.WriteFiles(testPaths(t))
 
 	for _, f := range clipboard.Formats() {
 		if f == clipboard.FmtFiles {
@@ -98,7 +98,7 @@ func TestReadFilesRawBytes(t *testing.T) {
 	filesReady(t)
 
 	paths := testPaths(t)
-	clipboard.WriteFiles(paths...)
+	clipboard.WriteFiles(paths)
 
 	buf := clipboard.Read(clipboard.FmtFiles)
 	if buf == nil {
@@ -124,7 +124,7 @@ func TestWriteAllWithFiles(t *testing.T) {
 
 	// WriteFiles is Write(FmtFiles, ...) over a uri-list body; take that body
 	// back out so the same list can go through WriteAll beside another format.
-	clipboard.WriteFiles(paths...)
+	clipboard.WriteFiles(paths)
 	uris := clipboard.Read(clipboard.FmtFiles)
 
 	clipboard.WriteAll(

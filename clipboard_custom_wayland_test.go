@@ -34,7 +34,7 @@ func TestWaylandCustomWrite(t *testing.T) {
 
 	const mime = "application/x.golang-design.clipboard-wl-write"
 	f := Register(mime)
-	if _, err := wlWrite(f, rawCustom); err != nil {
+	if _, err := wlWrite(selClipboard, f, rawCustom); err != nil {
 		t.Fatalf("wlWrite: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -69,7 +69,7 @@ func TestWaylandCustomRead(t *testing.T) {
 	time.Sleep(200 * time.Millisecond) // let wl-copy acquire selection ownership
 
 	f := Register(mime)
-	got, err := wlRead(f)
+	got, err := wlRead(selClipboard, f)
 	if err != nil {
 		t.Fatalf("wlRead: %v", err)
 	}

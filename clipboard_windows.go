@@ -502,7 +502,10 @@ func writeCustom(format uintptr, buf []byte) error {
 // enumerateFormats reports the formats currently on the clipboard by iterating
 // the available clipboard formats with EnumClipboardFormats and mapping each to
 // a Format.
-func enumerateFormats() []Format {
+func enumerateFormats(sel selection) []Format {
+	if sel == selPrimary {
+		return nil
+	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	if openClipboardRetry() != nil {
@@ -603,7 +606,11 @@ func openClipboardRetry() error {
 	}
 }
 
-func read(t Format) (buf []byte, err error) {
+func read(sel selection, t Format) (buf []byte, err error) {
+	if sel == selPrimary {
+		// This platform has no primary selection (see FromPrimary).
+		return nil, errUnsupported
+	}
 	// On Windows, OpenClipboard and CloseClipboard must be executed on
 	// the same thread. Thus, lock the OS thread for further execution.
 	runtime.LockOSThread()
@@ -653,8 +660,8 @@ func read(t Format) (buf []byte, err error) {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(t Format, buf []byte) (<-chan struct{}, error) {
-	return writeAll([]Item{{Format: t, Bytes: buf}})
+func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
+	return writeAll(sel, []Item{{Format: t, Bytes: buf}})
 }
 
 // writeAll publishes every item inside one OpenClipboard/EmptyClipboard/
@@ -666,7 +673,13 @@ func write(t Format, buf []byte) (<-chan struct{}, error) {
 // Every item is resolved before the clipboard is opened, so a bad payload — an
 // undecodable image, a string with an interior NUL, an unregistered format —
 // fails with the clipboard untouched rather than emptied and half filled.
-func writeAll(items []Item) (<-chan struct{}, error) {
+func writeAll(sel selection, items []Item) (<-chan struct{}, error) {
+	if sel == selPrimary {
+		// This platform has no primary selection. Refusing is deliberate:
+		// writing to the ordinary clipboard instead would destroy whatever the
+		// user had copied (see FromPrimary).
+		return nil, errUnsupported
+	}
 	resolved := make([]windowsItem, 0, len(items))
 	for _, it := range items {
 		r, err := resolveItem(it)
@@ -733,18 +746,25 @@ func writeAll(items []Item) (<-chan struct{}, error) {
 // every clipboard change (#153). watchEvent takes that path; watchPoll is the
 // fallback for the environments where a window cannot be created at all, such
 // as a service running in Session 0 (#145).
-func watch(ctx context.Context, t Format) <-chan []byte {
-	if recv, ok := watchEvent(ctx, t); ok {
+func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
+	if sel == selPrimary {
+		// No primary selection on Windows: nothing will ever be delivered, so
+		// say so by closing rather than leaving the caller waiting.
+		recv := make(chan []byte)
+		close(recv)
 		return recv
 	}
-	return watchPoll(ctx, t)
+	if recv, ok := watchEvent(ctx, sel, t); ok {
+		return recv
+	}
+	return watchPoll(ctx, sel, t)
 }
 
 // watchEvent watches through a message-only window registered as a clipboard
 // format listener, so a change is delivered when it happens instead of at the
 // next tick. It reports false — having cleaned up whatever it did create — when
 // the window cannot be set up, leaving the caller to fall back to polling.
-func watchEvent(ctx context.Context, t Format) (<-chan []byte, bool) {
+func watchEvent(ctx context.Context, sel selection, t Format) (<-chan []byte, bool) {
 	if !clipboardListenerAvailable() {
 		return nil, false
 	}
@@ -810,7 +830,7 @@ func watchEvent(ctx context.Context, t Format) (<-chan []byte, bool) {
 			}
 			// The listener fires for every change, whatever its format; a nil
 			// read means this change was not in the watched one.
-			b := Read(t)
+			b := Read(t, withSelection(sel))
 			if b == nil {
 				cnt = cur
 				continue
@@ -834,7 +854,7 @@ func watchEvent(ctx context.Context, t Format) (<-chan []byte, bool) {
 // watchPoll observes the clipboard by comparing the sequence number on a fixed
 // tick. It is the fallback for backends and environments without a usable
 // clipboard listener; changes closer together than the interval coalesce.
-func watchPoll(ctx context.Context, t Format) <-chan []byte {
+func watchPoll(ctx context.Context, sel selection, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	ready := make(chan struct{})
 	go func() {
@@ -851,7 +871,7 @@ func watchPoll(ctx context.Context, t Format) <-chan []byte {
 			case <-ti.C:
 				cur, _, _ := getClipboardSequenceNumber.Call()
 				if cnt != cur {
-					b := Read(t)
+					b := Read(t, withSelection(sel))
 					if b == nil {
 						continue
 					}
