@@ -30,9 +30,9 @@ func initialize() error { return nil }
 
 // enumerateFormats reports the formats on the clipboard. The Android bridge
 // exposes only text and no enumeration API, so Formats() returns empty.
-func enumerateFormats(sel selection) []Format { return nil }
+func enumerateFormats(ctx context.Context, sel selection) []Format { return nil }
 
-func read(sel selection, t Format) (buf []byte, err error) {
+func read(ctx context.Context, sel selection, t Format) (buf []byte, err error) {
 	if sel == selPrimary {
 		// No primary selection on this platform (see FromPrimary).
 		return nil, errUnsupported
@@ -64,7 +64,7 @@ func read(sel selection, t Format) (buf []byte, err error) {
 
 // write writes the given data to clipboard and
 // returns true if success or false if failed.
-func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
+func write(ctx context.Context, sel selection, t Format, buf []byte) (<-chan struct{}, error) {
 	if sel == selPrimary {
 		// No primary selection here, and redirecting to the ordinary clipboard
 		// would destroy what the user had copied (see FromPrimary).
@@ -97,17 +97,17 @@ func write(sel selection, t Format, buf []byte) (<-chan struct{}, error) {
 // multi-representation clipboard, and writing each item in turn would be worse
 // than useless: every write replaces the last, so the *least* preferred
 // representation would win — the reverse of what the caller asked for (#151).
-func writeAll(sel selection, items []Item, loops int) (<-chan struct{}, error) {
+func writeAll(ctx context.Context, sel selection, items []Item, loops int) (<-chan struct{}, error) {
 	// loops is ignored: this platform's clipboard is a store the OS serves, so
 	// no paste request ever reaches this process to be counted (see Loops).
 	_ = loops
-	return write(sel, items[0].Format, items[0].Bytes)
+	return write(ctx, sel, items[0].Format, items[0].Bytes)
 }
 
 func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
-	last := Read(t, withSelection(sel))
+	last, _ := Read(ctx, t, withSelection(sel))
 	go func() {
 		defer ti.Stop()
 		for {
@@ -116,7 +116,7 @@ func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 				close(recv)
 				return
 			case <-ti.C:
-				b := Read(t, withSelection(sel))
+				b, _ := Read(ctx, t, withSelection(sel)) // a failed read is nothing new to report
 				if b == nil {
 					continue
 				}

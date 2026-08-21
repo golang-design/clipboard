@@ -76,14 +76,14 @@ func TestClipboard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to read gold file: %v", err)
 		}
-		clipboard.Write(clipboard.FmtImage, data)
+		clipboard.Write(context.TODO(), clipboard.FmtImage, data)
 
-		b := clipboard.Read(clipboard.FmtText)
+		b, _ := clipboard.Read(context.TODO(), clipboard.FmtText)
 		if b != nil {
 			t.Fatalf("read clipboard that stores image data as text should fail, but got len: %d", len(b))
 		}
 
-		b = clipboard.Read(clipboard.FmtImage)
+		b, _ = clipboard.Read(context.TODO(), clipboard.FmtImage)
 		if b == nil {
 			t.Fatalf("read clipboard that stores image data as image should success, but got: nil")
 		}
@@ -132,13 +132,13 @@ func TestClipboard(t *testing.T) {
 
 	t.Run("text", func(t *testing.T) {
 		data := []byte("golang.design/x/clipboard")
-		clipboard.Write(clipboard.FmtText, data)
+		clipboard.Write(context.TODO(), clipboard.FmtText, data)
 
-		b := clipboard.Read(clipboard.FmtImage)
+		b, _ := clipboard.Read(context.TODO(), clipboard.FmtImage)
 		if b != nil {
 			t.Fatalf("read clipboard that stores text data as image should fail, but got len: %d", len(b))
 		}
-		b = clipboard.Read(clipboard.FmtText)
+		b, _ = clipboard.Read(context.TODO(), clipboard.FmtText)
 		if b == nil {
 			t.Fatal("read clipboard taht stores text data as text should success, but got: nil")
 		}
@@ -160,10 +160,10 @@ func TestClipboardMultipleWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read gold file: %v", err)
 	}
-	chg := clipboard.Write(clipboard.FmtImage, data)
+	chg, _ := clipboard.Write(context.TODO(), clipboard.FmtImage, data)
 
 	data = []byte("golang.design/x/clipboard")
-	clipboard.Write(clipboard.FmtText, data)
+	clipboard.Write(context.TODO(), clipboard.FmtText, data)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
@@ -181,12 +181,12 @@ func TestClipboardMultipleWrites(t *testing.T) {
 		t.Fatalf("changed channel should be closed after receiving the notification")
 	}
 
-	b := clipboard.Read(clipboard.FmtImage)
+	b, _ := clipboard.Read(context.TODO(), clipboard.FmtImage)
 	if b != nil {
 		t.Fatalf("read clipboard that should store text data as image should fail, but got: %d", len(b))
 	}
 
-	b = clipboard.Read(clipboard.FmtText)
+	b, _ = clipboard.Read(context.TODO(), clipboard.FmtText)
 	if b == nil {
 		t.Fatalf("read clipboard that should store text data as text should success, got: nil")
 	}
@@ -210,13 +210,13 @@ func TestClipboardConcurrentRead(t *testing.T) {
 		defer func() {
 			done <- true
 		}()
-		clipboard.Read(clipboard.FmtText)
+		clipboard.Read(context.TODO(), clipboard.FmtText)
 	}()
 	go func() {
 		defer func() {
 			done <- true
 		}()
-		clipboard.Read(clipboard.FmtImage)
+		clipboard.Read(context.TODO(), clipboard.FmtImage)
 	}()
 	<-done
 	<-done
@@ -229,14 +229,14 @@ func TestClipboardWriteEmpty(t *testing.T) {
 		}
 	}
 
-	chg1 := clipboard.Write(clipboard.FmtText, nil)
-	if got := clipboard.Read(clipboard.FmtText); got != nil {
+	chg1, _ := clipboard.Write(context.TODO(), clipboard.FmtText, nil)
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); got != nil {
 		t.Fatalf("write nil to clipboard should read nil, got: %v", string(got))
 	}
-	clipboard.Write(clipboard.FmtText, []byte(""))
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte(""))
 	<-chg1
 
-	if got := clipboard.Read(clipboard.FmtText); string(got) != "" {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); string(got) != "" {
 		t.Fatalf("write empty string to clipboard should read empty string, got: `%v`", string(got))
 	}
 }
@@ -252,8 +252,8 @@ func TestClipboardWatch(t *testing.T) {
 	defer cancel()
 
 	// clear clipboard
-	clipboard.Write(clipboard.FmtText, []byte(""))
-	lastRead := clipboard.Read(clipboard.FmtText)
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte(""))
+	lastRead, _ := clipboard.Read(context.TODO(), clipboard.FmtText)
 
 	changed := clipboard.Watch(ctx, clipboard.FmtText)
 
@@ -272,7 +272,7 @@ func TestClipboardWatch(t *testing.T) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				clipboard.Write(clipboard.FmtText, want)
+				clipboard.Write(context.TODO(), clipboard.FmtText, want)
 			}
 		}
 	}(ctx)
@@ -342,7 +342,7 @@ func TestClipboardWatchMultiFormat(t *testing.T) {
 	// the Linux watcher emits only when the bytes differ from what it read at
 	// startup, so a leftover identical string would suppress the text event.
 	wantText := []byte("golang.design/x/clipboard#89-watch-multiformat")
-	clipboard.Write(clipboard.FmtText, []byte(""))
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte(""))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 	defer cancel()
@@ -368,9 +368,9 @@ func TestClipboardWatchMultiFormat(t *testing.T) {
 				return
 			case <-tk.C:
 				if writeImage {
-					clipboard.Write(clipboard.FmtImage, img)
+					clipboard.Write(context.TODO(), clipboard.FmtImage, img)
 				} else {
-					clipboard.Write(clipboard.FmtText, wantText)
+					clipboard.Write(context.TODO(), clipboard.FmtText, wantText)
 				}
 				writeImage = !writeImage
 			}
@@ -423,8 +423,8 @@ func BenchmarkClipboard(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			clipboard.Write(clipboard.FmtText, data)
-			_ = clipboard.Read(clipboard.FmtText)
+			clipboard.Write(context.TODO(), clipboard.FmtText, data)
+			_, _ = clipboard.Read(context.TODO(), clipboard.FmtText)
 		}
 	})
 }
@@ -441,13 +441,13 @@ func TestClipboardNoCgo(t *testing.T) {
 	// API must degrade gracefully instead of panicking: Read/Write return
 	// nil and Watch returns a closed channel. See issue #93.
 	t.Run("Read", func(t *testing.T) {
-		if got := clipboard.Read(clipboard.FmtText); got != nil {
+		if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); got != nil {
 			t.Fatalf("expect nil when CGO_ENABLED=0, got: %v", got)
 		}
 	})
 
 	t.Run("Write", func(t *testing.T) {
-		if got := clipboard.Write(clipboard.FmtText, []byte("dummy")); got != nil {
+		if got, _ := clipboard.Write(context.TODO(), clipboard.FmtText, []byte("dummy")); got != nil {
 			t.Fatalf("expect nil when CGO_ENABLED=0, got non-nil channel")
 		}
 	})

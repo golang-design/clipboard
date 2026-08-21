@@ -50,7 +50,7 @@ func TestWatchIsEventDriven(t *testing.T) {
 		want := fmt.Appendf(nil, "event-driven-%d", i)
 
 		start := time.Now()
-		Write(FmtText, want)
+		Write(context.TODO(), FmtText, want)
 
 		if err := awaitValue(ch, want); err != nil {
 			t.Fatalf("round %d: %v", i, err)
@@ -105,7 +105,7 @@ func TestWatchPollIsSlowerThanTheEventCeiling(t *testing.T) {
 
 	want := []byte("poll-fallback")
 	start := time.Now()
-	Write(FmtText, want)
+	Write(context.TODO(), FmtText, want)
 
 	deadline := time.After(10 * time.Second)
 	for {

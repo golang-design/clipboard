@@ -6,9 +6,9 @@
 
 package clipboard
 
-// for debugging errors
+// for debugging errors. ErrUnavailable is public now (see clipboard.go), so it
+// is no longer re-exported here.
 var (
 	Debug          = debug
-	ErrUnavailable = errUnavailable
 	ErrCgoDisabled = errNoCgo
 )

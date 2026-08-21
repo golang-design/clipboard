@@ -8,6 +8,7 @@ package clipboard_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func customRoundTrip(t *testing.T) {
 
 		// ReadAs decodes the same bytes through a caller-supplied function.
 		token := clipboard.Register(f.mime)
-		n, err := clipboard.ReadAs(token, func(b []byte) (int, error) { return len(b), nil })
+		n, err := clipboard.ReadAs(context.TODO(), token, func(b []byte) (int, error) { return len(b), nil })
 		if err != nil {
 			t.Fatalf("ReadAs(%s): %v", f.mime, err)
 		}
@@ -68,7 +69,7 @@ func customRoundTrip(t *testing.T) {
 
 	// A different, unwritten custom format reads back as nil / ErrNoData.
 	other := clipboard.Register("application/x.golang-design.clipboard-test-absent")
-	if got := clipboard.Read(other); got != nil {
+	if got, _ := clipboard.Read(context.TODO(), other); got != nil {
 		t.Fatalf("unwritten custom format should read nil, got %v", got)
 	}
 }
@@ -81,11 +82,11 @@ func customExact(t *testing.T, mime string, want []byte) {
 	t.Helper()
 
 	f := clipboard.Register(mime)
-	clipboard.Write(f, want)
+	clipboard.Write(context.TODO(), f, want)
 
 	var got []byte
 	for i := 0; i < 50; i++ {
-		if got = clipboard.Read(f); got != nil {
+		if got, _ = clipboard.Read(context.TODO(), f); got != nil {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)

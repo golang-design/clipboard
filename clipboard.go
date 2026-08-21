@@ -19,13 +19,13 @@ The most common operations are `Read` and `Write`. To use them:
 
 	// write/read text format data of the clipboard, and
 	// the byte buffer regarding the text are UTF8 encoded.
-	clipboard.Write(clipboard.FmtText, []byte("text data"))
-	clipboard.Read(clipboard.FmtText)
+	clipboard.Write(ctx, clipboard.FmtText, []byte("text data"))
+	clipboard.Read(ctx, clipboard.FmtText)
 
 	// write/read image format data of the clipboard, and
 	// the byte buffer regarding the image are PNG encoded.
-	clipboard.Write(clipboard.FmtImage, []byte("image data"))
-	clipboard.Read(clipboard.FmtImage)
+	clipboard.Write(ctx, clipboard.FmtImage, []byte("image data"))
+	clipboard.Read(ctx, clipboard.FmtImage)
 
 FmtImage is PNG: the clipboard serves images PNG-encoded because PNG
 carries an alpha channel, which other graphical software relies on.
@@ -36,21 +36,22 @@ arrives on the clipboard as PNG:
 
 	import _ "image/jpeg" // register the decoder you feed Write
 
-	clipboard.Write(clipboard.FmtImage, jpegBytes) // stored as PNG
+	clipboard.Write(ctx, clipboard.FmtImage, jpegBytes) // stored as PNG
 
 To move image bytes that must not be transcoded — a JPEG that stays a
 JPEG, an SVG, a WebP, a camera raw — register that MIME type as a custom
 format instead of using FmtImage; custom formats are raw passthrough:
 
 	jpg := clipboard.Register("image/jpeg")
-	clipboard.Write(jpg, jpegBytes)  // exact bytes, no conversion
+	clipboard.Write(ctx, jpg, jpegBytes)  // exact bytes, no conversion
 
 To copy or paste files — what a file manager puts on the clipboard when you
 press Ctrl+C on a selection — use WriteFiles and ReadFiles:
 
-	clipboard.WriteFiles([]string{"/home/me/report.pdf", "/home/me/notes.txt"})
+	clipboard.WriteFiles(ctx, []string{"/home/me/report.pdf", "/home/me/notes.txt"})
 
-	for _, path := range clipboard.ReadFiles() {
+	paths, _ := clipboard.ReadFiles(ctx)
+	for _, path := range paths {
 		println(path)
 	}
 
@@ -64,7 +65,7 @@ best — use WriteAll. Calling Write twice does not do this: each write
 replaces the whole clipboard, so only the last format would survive.
 
 	html := clipboard.Register("text/html")
-	clipboard.WriteAll(
+	clipboard.WriteAll(ctx,
 		clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
 		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
 	)
@@ -74,7 +75,7 @@ whatever was last selected with the mouse and is pasted with the middle
 button, independently of the Ctrl+C clipboard. Reach it with FromPrimary,
 which every operation accepts:
 
-	sel := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary())
+	sel, err := clipboard.Read(ctx, clipboard.FmtText, clipboard.FromPrimary())
 	ch := clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
 
 Windows and macOS have no second clipboard, so there a primary read returns
@@ -85,7 +86,7 @@ empty struct as a signal, which indicates the corresponding write call
 to the clipboard is outdated, meaning the clipboard has been overwritten
 by others and the previously written data is lost. For instance:
 
-	changed := clipboard.Write(clipboard.FmtText, []byte("text data"))
+	changed, err := clipboard.Write(ctx, clipboard.FmtText, []byte("text data"))
 
 	select {
 	case <-changed:
@@ -176,12 +177,26 @@ import (
 	"sync"
 )
 
+// The errors a clipboard operation can report. They exist so a caller can tell
+// the ordinary "nothing to paste" case from a clipboard it cannot reach at all —
+// a distinction the byte-only API used to flatten into a nil result.
+var (
+	// ErrUnavailable means the clipboard itself could not be reached: no X
+	// server, a display connection that failed, or another application holding
+	// the clipboard open past the retry window.
+	ErrUnavailable = errors.New("clipboard: unavailable")
+	// ErrUnsupported means this platform cannot do what was asked: an image on
+	// mobile, a custom format in a CGO-disabled build, the primary selection on
+	// Windows.
+	ErrUnsupported = errors.New("clipboard: unsupported")
+)
+
 var (
 	// activate only for running tests.
 	debug          = false
-	errUnavailable = errors.New("clipboard unavailable")
-	errUnsupported = errors.New("unsupported format")
-	errNoCgo       = errors.New("clipboard: cannot use when CGO_ENABLED=0")
+	errUnavailable = ErrUnavailable
+	errUnsupported = ErrUnsupported
+	errNoCgo       = fmt.Errorf("%w: cannot use when CGO_ENABLED=0", ErrUnavailable)
 )
 
 // Option configures a clipboard operation. Format and Item are Options too, so
@@ -233,7 +248,7 @@ func (o optionFunc) apply(c *config) { o(c) }
 // primary selection holds whatever was last selected with the mouse and is
 // pasted with the middle button, and copying does not disturb it.
 //
-//	sel := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary())
+//	sel, err := clipboard.Read(ctx, clipboard.FmtText, clipboard.FromPrimary())
 //
 // The primary selection exists only on X11 and Wayland. Elsewhere — Windows,
 // macOS, iOS, Android, CGO-disabled builds — a read returns nil and a write is
@@ -252,7 +267,7 @@ func withSelection(sel selection) Option { return optionFunc(func(c *config) { c
 // application before it is dropped from the clipboard. It is how you put a
 // secret on the clipboard and have it disappear once it has been pasted:
 //
-//	clipboard.Write(clipboard.FmtText, password, clipboard.Loops(1))
+//	clipboard.Write(ctx, clipboard.FmtText, password, clipboard.Loops(1))
 //
 // Read this part first: Loops works on X11 and Wayland only, and is silently
 // ignored on Windows, macOS, iOS, Android and in CGO-disabled builds. It is
@@ -363,18 +378,27 @@ func Init() error {
 // PNG for FmtImage, whatever encoding the source application used. A custom
 // format registered with Register is raw passthrough, so Read returns its
 // bytes exactly as they sit on the clipboard.
-func Read(t Format, opts ...Option) []byte {
+func Read(ctx context.Context, t Format, opts ...Option) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	lock.Lock()
 	defer lock.Unlock()
 
-	buf, err := read(newConfig(opts).sel, t)
+	buf, err := read(ctx, newConfig(opts).sel, t)
 	if err != nil {
 		if debug {
 			fmt.Fprintf(os.Stderr, "read clipboard err: %v\n", err)
 		}
-		return nil
+		return nil, err
 	}
-	return buf
+	if buf == nil {
+		// A backend that reached the clipboard and found nothing reports it as
+		// the ordinary empty case rather than as a failure.
+		return nil, ErrNoData
+	}
+	return buf, nil
 }
 
 // Write writes a given buffer to the clipboard in a specified format.
@@ -392,8 +416,8 @@ func Read(t Format, opts ...Option) []byte {
 // _ "image/jpeg" or _ "golang.org/x/image/webp"), and undecodable input passes
 // through unchanged. The clipboard therefore always serves PNG, regardless of
 // the input encoding.
-func Write(t Format, buf []byte, opts ...Option) <-chan struct{} {
-	return WriteAll(append([]Option{Item{Format: t, Bytes: buf}}, opts...)...)
+func Write(ctx context.Context, t Format, buf []byte, opts ...Option) (<-chan struct{}, error) {
+	return WriteAll(ctx, append([]Option{Item{Format: t, Bytes: buf}}, opts...)...)
 }
 
 // Item is one representation of the content being copied: the format it is
@@ -412,7 +436,7 @@ func (i Item) apply(c *config) { c.items = append(c.items, i) }
 // one it understands — plain text and HTML from a single copy, for instance:
 //
 //	html := clipboard.Register("text/html")
-//	clipboard.WriteAll(
+//	clipboard.WriteAll(ctx,
 //		clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
 //		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
 //	)
@@ -442,24 +466,28 @@ func (i Item) apply(c *config) { c.items = append(c.items, i) }
 //
 // Pass FromPrimary to publish to the primary selection instead, or Loops to
 // limit how many times the set is served.
-func WriteAll(opts ...Option) <-chan struct{} {
+func WriteAll(ctx context.Context, opts ...Option) (<-chan struct{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	lock.Lock()
 	defer lock.Unlock()
 
 	c := newConfig(opts)
 	items := normalizeItems(c.items)
 	if len(items) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	changed, err := writeAll(c.sel, items, c.loops)
+	changed, err := writeAll(ctx, c.sel, items, c.loops)
 	if err != nil {
 		if debug {
 			fmt.Fprintf(os.Stderr, "write to clipboard err: %v\n", err)
 		}
-		return nil
+		return nil, err
 	}
-	return changed
+	return changed, nil
 }
 
 // normalizeItems drops the later duplicate of a format, keeping the caller's
@@ -511,19 +539,20 @@ func toPNG(buf []byte) []byte {
 // if it holds no file list. It is Read(FmtFiles) with the text/uri-list body
 // parsed into paths:
 //
-//	for _, path := range clipboard.ReadFiles() {
+//	paths, _ := clipboard.ReadFiles(ctx)
+//	for _, path := range paths {
 //		fmt.Println(path)
 //	}
 //
 // A URI that does not name a local file — a remote one, or a path this platform
 // cannot express — is skipped rather than guessed at, so the result can be
 // shorter than what the clipboard holds.
-func ReadFiles(opts ...Option) []string {
-	buf := Read(FmtFiles, opts...)
-	if buf == nil {
-		return nil
+func ReadFiles(ctx context.Context, opts ...Option) ([]string, error) {
+	buf, err := Read(ctx, FmtFiles, opts...)
+	if err != nil {
+		return nil, err
 	}
-	return pathsFromURIList(buf)
+	return pathsFromURIList(buf), nil
 }
 
 // WriteFiles publishes a list of file paths, as copying files in a file manager
@@ -536,8 +565,8 @@ func ReadFiles(opts ...Option) []string {
 //
 // It takes a slice rather than variadic paths because a string cannot be an
 // Option without swallowing every stray string argument; the options follow.
-func WriteFiles(paths []string, opts ...Option) <-chan struct{} {
-	return Write(FmtFiles, uriListFromPaths(paths), opts...)
+func WriteFiles(ctx context.Context, paths []string, opts ...Option) (<-chan struct{}, error) {
+	return Write(ctx, FmtFiles, uriListFromPaths(paths), opts...)
 }
 
 // Data is a single observed clipboard change: the format the change was

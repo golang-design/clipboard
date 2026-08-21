@@ -53,7 +53,7 @@ func TestWatchNoGoroutineLeakOnCancel(t *testing.T) {
 	// watcher detects a change and fills its size-1 buffer, then detects another
 	// and blocks trying to send it (nobody is reading).
 	for i := 0; i < 16; i++ {
-		clipboard.Write(clipboard.FmtText, fmt.Appendf(nil, "leak-probe-%d", i))
+		clipboard.Write(context.TODO(), clipboard.FmtText, fmt.Appendf(nil, "leak-probe-%d", i))
 		time.Sleep(250 * time.Millisecond)
 	}
 

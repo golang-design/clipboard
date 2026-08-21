@@ -7,6 +7,7 @@
 package clipboard
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -74,9 +75,16 @@ func TestRegisterConcurrent(t *testing.T) {
 func TestReadAsNoData(t *testing.T) {
 	// A freshly registered format that was never written holds no data, so
 	// ReadAs must report ErrNoData and must not invoke decode.
+	//
+	// The clipboard has to be reachable first, or the error under test is
+	// ErrUnavailable instead — which is the point of telling them apart, and
+	// which the old ReadAs hid by mapping every failure to ErrNoData.
+	if err := Init(); err != nil {
+		t.Skipf("clipboard unavailable: %v", err)
+	}
 	f := Register("application/x.readas-nodata-test")
 	called := false
-	v, err := ReadAs(f, func(b []byte) (int, error) {
+	v, err := ReadAs(context.TODO(), f, func(b []byte) (int, error) {
 		called = true
 		return len(b), nil
 	})

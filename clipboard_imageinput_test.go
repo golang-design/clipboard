@@ -8,6 +8,7 @@ package clipboard_test
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg" // also registers the JPEG decoder used by Write's normalization
@@ -46,13 +47,13 @@ func TestWriteImageAcceptsJPEG(t *testing.T) {
 		t.Fatalf("jpeg encode: %v", err)
 	}
 
-	clipboard.Write(clipboard.FmtImage, jbuf.Bytes())
+	clipboard.Write(context.TODO(), clipboard.FmtImage, jbuf.Bytes())
 
 	// Poll Read: on some backends (Wayland data-control) a freshly set
 	// selection takes a moment to be visible to a new reader connection.
 	var got []byte
 	for i := 0; i < 50; i++ {
-		if got = clipboard.Read(clipboard.FmtImage); got != nil {
+		if got, _ = clipboard.Read(context.TODO(), clipboard.FmtImage); got != nil {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)

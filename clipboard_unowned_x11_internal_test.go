@@ -9,6 +9,7 @@
 package clipboard
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func TestReadUnownedSelectionReturnsPromptly(t *testing.T) {
 	x11Ready(t)
 
 	start := time.Now()
-	got, err := x11ReadSelection(unownedSelection, "UTF8_STRING")
+	got, err := x11ReadSelection(context.TODO(), unownedSelection, "UTF8_STRING")
 	took := time.Since(start)
 
 	if err != nil {
@@ -64,7 +65,7 @@ func TestTargetsOfUnownedSelectionReturnsPromptly(t *testing.T) {
 	x11Ready(t)
 
 	start := time.Now()
-	got, err := x11TargetsOf(unownedSelection)
+	got, err := x11TargetsOf(context.TODO(), unownedSelection)
 	took := time.Since(start)
 
 	if err != nil {
@@ -76,5 +77,40 @@ func TestTargetsOfUnownedSelectionReturnsPromptly(t *testing.T) {
 	if took > x11ReadTimeout/2 {
 		t.Fatalf("x11TargetsOf an unowned selection took %v, want well under the %v read deadline",
 			took, x11ReadTimeout)
+	}
+}
+
+// TestDeadlineBoundsTheRead checks a caller's deadline actually shortens the
+// wire wait rather than being ignored in favor of the package ceiling.
+//
+// This is a unit test on the deadline calculation rather than an end-to-end
+// read, deliberately. Arranging a selection whose owner accepts a request and
+// then never answers takes a second uncooperative process; without one, every
+// end-to-end read returns promptly for reasons of its own — an unowned selection
+// short-circuits, and an owned one refuses an unknown target — so an end-to-end
+// test would pass whether or not the context was consulted at all.
+func TestDeadlineBoundsTheRead(t *testing.T) {
+	ceiling := time.Now().Add(x11ReadTimeout)
+
+	// A deadline sooner than the ceiling wins: that is the point of taking a
+	// context, and before this the ceiling was the only answer available.
+	soon := time.Now().Add(200 * time.Millisecond)
+	ctx, cancel := context.WithDeadline(context.Background(), soon)
+	defer cancel()
+	if got := x11Deadline(ctx); !got.Equal(soon) {
+		t.Fatalf("x11Deadline with a 200ms deadline = %v, want the caller's %v", got, soon)
+	}
+
+	// A deadline beyond the ceiling does not extend it: a caller cannot ask this
+	// package to sit on a wire read for an hour.
+	far, cancelFar := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
+	defer cancelFar()
+	if got := x11Deadline(far); got.After(ceiling.Add(time.Second)) {
+		t.Fatalf("x11Deadline with an hour-long deadline = %v, want it capped near %v", got, ceiling)
+	}
+
+	// No deadline at all keeps the previous behavior.
+	if got := x11Deadline(context.Background()); got.Before(time.Now().Add(x11ReadTimeout / 2)) {
+		t.Fatalf("x11Deadline without a deadline = %v, want about %v out", got, x11ReadTimeout)
 	}
 }

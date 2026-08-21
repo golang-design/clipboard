@@ -463,7 +463,7 @@ func readFiles() ([]byte, error) {
 	}
 	paths := pathsFromDropFiles(buf)
 	if len(paths) == 0 {
-		return nil, errUnavailable
+		return nil, ErrNoData
 	}
 	return uriListFromPaths(paths), nil
 }
@@ -502,7 +502,7 @@ func writeCustom(format uintptr, buf []byte) error {
 // enumerateFormats reports the formats currently on the clipboard by iterating
 // the available clipboard formats with EnumClipboardFormats and mapping each to
 // a Format.
-func enumerateFormats(sel selection) []Format {
+func enumerateFormats(ctx context.Context, sel selection) []Format {
 	if sel == selPrimary {
 		return nil
 	}
@@ -606,7 +606,7 @@ func openClipboardRetry() error {
 	}
 }
 
-func read(sel selection, t Format) (buf []byte, err error) {
+func read(ctx context.Context, sel selection, t Format) (buf []byte, err error) {
 	if sel == selPrimary {
 		// This platform has no primary selection (see FromPrimary).
 		return nil, errUnsupported
@@ -635,10 +635,13 @@ func read(sel selection, t Format) (buf []byte, err error) {
 		}
 	}
 
-	// check if clipboard is avaliable for the requested format
-	r, _, err := isClipboardFormatAvailable.Call(format)
+	// The format is simply not on the clipboard, which is the ordinary "nothing
+	// to paste" case rather than a clipboard this process cannot reach. The two
+	// used to be reported alike because this check conflates them; a caller
+	// asking for an image on a text-only clipboard wants ErrNoData.
+	r, _, _ := isClipboardFormatAvailable.Call(format)
 	if r == 0 {
-		return nil, errUnavailable
+		return nil, ErrNoData
 	}
 
 	if err := openClipboardRetry(); err != nil {
@@ -669,7 +672,7 @@ func read(sel selection, t Format) (buf []byte, err error) {
 // Every item is resolved before the clipboard is opened, so a bad payload — an
 // undecodable image, a string with an interior NUL, an unregistered format —
 // fails with the clipboard untouched rather than emptied and half filled.
-func writeAll(sel selection, items []Item, loops int) (<-chan struct{}, error) {
+func writeAll(ctx context.Context, sel selection, items []Item, loops int) (<-chan struct{}, error) {
 	// loops is ignored: this platform's clipboard is a store the OS serves, so
 	// no paste request ever reaches this process to be counted (see Loops).
 	_ = loops
@@ -829,7 +832,7 @@ func watchEvent(ctx context.Context, sel selection, t Format) (<-chan []byte, bo
 			}
 			// The listener fires for every change, whatever its format; a nil
 			// read means this change was not in the watched one.
-			b := Read(t, withSelection(sel))
+			b, _ := Read(ctx, t, withSelection(sel)) // a failed read is nothing new to report
 			if b == nil {
 				cnt = cur
 				continue
@@ -870,7 +873,7 @@ func watchPoll(ctx context.Context, sel selection, t Format) <-chan []byte {
 			case <-ti.C:
 				cur, _, _ := getClipboardSequenceNumber.Call()
 				if cnt != cur {
-					b := Read(t, withSelection(sel))
+					b, _ := Read(ctx, t, withSelection(sel)) // a failed read is nothing new to report
 					if b == nil {
 						continue
 					}

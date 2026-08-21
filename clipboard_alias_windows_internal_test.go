@@ -10,6 +10,7 @@ package clipboard
 
 import (
 	"bytes"
+	"context"
 	"runtime"
 	"testing"
 )
@@ -78,17 +79,18 @@ func TestWindowsForeignFormatIsReadable(t *testing.T) {
 	writeFormatName(t, "PNG", want)
 
 	png := Register("image/png")
-	if got := Read(png); !bytes.Equal(got, want) {
+	if got, _ := Read(context.TODO(), png); !bytes.Equal(got, want) {
 		t.Fatalf(`Read(Register("image/png")) = %v, want %v`, got, want)
 	}
 	found := false
-	for _, f := range Formats() {
+	formats, _ := Formats(context.TODO())
+	for _, f := range formats {
 		if f == png {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf(`Formats() = %v, want it to include the "image/png" token %v`, Formats(), png)
+		t.Fatalf(`Formats() = %v, want it to include the "image/png" token %v`, formats, png)
 	}
 }
 

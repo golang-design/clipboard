@@ -58,14 +58,14 @@ func TestPrimarySelectionIsIndependent(t *testing.T) {
 	onClipboard := []byte("copied with ctrl-c")
 	onPrimary := []byte("selected with the mouse")
 
-	clipboard.Write(clipboard.FmtText, onClipboard)
-	clipboard.Write(clipboard.FmtText, onPrimary, clipboard.FromPrimary())
+	clipboard.Write(context.TODO(), clipboard.FmtText, onClipboard)
+	clipboard.Write(context.TODO(), clipboard.FmtText, onPrimary, clipboard.FromPrimary())
 
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, onClipboard) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, onClipboard) {
 		t.Fatalf("Read(FmtText) = %q, want %q: the primary write disturbed the clipboard",
 			got, onClipboard)
 	}
-	if got := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary()); !bytes.Equal(got, onPrimary) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText, clipboard.FromPrimary()); !bytes.Equal(got, onPrimary) {
 		t.Fatalf("Read(FmtText, FromPrimary()) = %q, want %q", got, onPrimary)
 	}
 }
@@ -80,11 +80,11 @@ func TestPrimarySelectionEnumerates(t *testing.T) {
 	}
 
 	html := clipboard.Register("text/html")
-	clipboard.Write(html, []byte("<b>clipboard</b>"))
-	clipboard.Write(clipboard.FmtText, []byte("primary"), clipboard.FromPrimary())
+	clipboard.Write(context.TODO(), html, []byte("<b>clipboard</b>"))
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte("primary"), clipboard.FromPrimary())
 
 	var sawText bool
-	primary := clipboard.Formats(clipboard.FromPrimary())
+	primary, _ := clipboard.Formats(context.TODO(), clipboard.FromPrimary())
 	for _, f := range primary {
 		if f == html {
 			t.Fatalf("Formats(FromPrimary()) = %v, want it not to report the clipboard's text/html", primary)
@@ -109,7 +109,7 @@ func TestPrimarySelectionWatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	clipboard.Write(clipboard.FmtText, []byte(""), clipboard.FromPrimary())
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte(""), clipboard.FromPrimary())
 	ch := clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
 
 	want := []byte("selection changed")
@@ -123,7 +123,7 @@ func TestPrimarySelectionWatch(t *testing.T) {
 			case <-ctx.Done():
 				return
 			case <-tk.C:
-				clipboard.Write(clipboard.FmtText, want, clipboard.FromPrimary())
+				clipboard.Write(context.TODO(), clipboard.FmtText, want, clipboard.FromPrimary())
 			}
 		}
 	}()
@@ -155,18 +155,18 @@ func TestPrimarySelectionDegradesSafely(t *testing.T) {
 	}
 
 	kept := []byte("what the user copied")
-	clipboard.Write(clipboard.FmtText, kept)
+	clipboard.Write(context.TODO(), clipboard.FmtText, kept)
 
-	if ch := clipboard.Write(clipboard.FmtText, []byte("must not land"), clipboard.FromPrimary()); ch != nil {
+	if ch, _ := clipboard.Write(context.TODO(), clipboard.FmtText, []byte("must not land"), clipboard.FromPrimary()); ch != nil {
 		t.Fatal("Write(..., FromPrimary()) reported success on a platform with no primary selection")
 	}
-	if got := clipboard.Read(clipboard.FmtText); !bytes.Equal(got, kept) {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText); !bytes.Equal(got, kept) {
 		t.Fatalf("Read(FmtText) = %q, want %q: a primary write must not touch the clipboard", got, kept)
 	}
-	if got := clipboard.Read(clipboard.FmtText, clipboard.FromPrimary()); got != nil {
+	if got, _ := clipboard.Read(context.TODO(), clipboard.FmtText, clipboard.FromPrimary()); got != nil {
 		t.Fatalf("Read(FmtText, FromPrimary()) = %q, want nil", got)
 	}
-	if got := clipboard.Formats(clipboard.FromPrimary()); len(got) != 0 {
+	if got, _ := clipboard.Formats(context.TODO(), clipboard.FromPrimary()); len(got) != 0 {
 		t.Fatalf("Formats(FromPrimary()) = %v, want empty", got)
 	}
 
@@ -193,10 +193,10 @@ func TestOptionsAreSourceCompatible(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	clipboard.Write(clipboard.FmtText, []byte("x"))
-	clipboard.WriteAll(clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("x")})
-	_ = clipboard.Read(clipboard.FmtText)
-	_ = clipboard.Formats()
+	clipboard.Write(context.TODO(), clipboard.FmtText, []byte("x"))
+	clipboard.WriteAll(context.TODO(), clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("x")})
+	_, _ = clipboard.Read(context.TODO(), clipboard.FmtText)
+	_, _ = clipboard.Formats(context.TODO())
 	_ = clipboard.Watch(ctx, clipboard.FmtText)
 	_ = clipboard.Watch(ctx)
 }

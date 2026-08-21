@@ -10,6 +10,7 @@ package clipboard
 
 import (
 	"bytes"
+	"context"
 	"image/png"
 	"os"
 	"runtime"
@@ -30,7 +31,7 @@ func TestRead24BitDIB(t *testing.T) {
 	dib := raw[14:]
 	setClipboardDIB(t, dib)
 
-	out := Read(FmtImage)
+	out, _ := Read(context.TODO(), FmtImage)
 	if out == nil {
 		t.Fatal("Read(FmtImage) returned nil for a 24-bit DIB on the clipboard")
 	}
