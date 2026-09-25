@@ -368,8 +368,8 @@ accessing system clipboards, but here are a few details you might need to know.
   running (the channel returned by `Write` reports when the data is no
   longer needed) or rely on a clipboard manager.
 - **Primary selection.** `FromPrimary()` reaches the middle-click selection on
-  X11 and Wayland. On Wayland it needs a compositor offering version 2 of a
-  data-control manager; below that, and on Windows and macOS, a primary read
+  X11 and Wayland. On Wayland it needs `ext-data-control-v1`, or version 2 of
+  `zwlr_data_control_manager_v1`; below that, and on Windows and macOS, a primary read
   returns `nil` and a primary write is a no-op — deliberately not redirected to
   the ordinary clipboard, which would destroy what the user had copied. The X11
   `SECONDARY` selection is not exposed.

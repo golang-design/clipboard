@@ -161,3 +161,15 @@ CLIPBOARD benefits too, before anything has been copied.
 ...Option)`. It shipped in #152 and is in no tag, so nothing depended on it, but
 it is the one call in the package that options could not be appended to — a
 string cannot implement `Option` without swallowing every stray string argument.
+
+**Later: the version rule was one protocol's.** §3 says the primary selection is
+in `ext_data_control_manager_v1` from the start, but the implementation applied
+the wlroots rule to both: bind at most version 2, and reach the primary selection
+only at 2 or above. `ext` has only a version 1, so under every compositor that
+offers it — and it is the manager preferred when both are advertised — the
+primary selection was reported unsupported. CI did not notice, because Ubuntu's
+sway offers only the wlroots manager, and `TestWaylandPrimarySelection` skips
+when the primary selection is reported missing. The FreeBSD Wayland job (#173)
+runs sway 1.12, which prefers `ext`, and showed the skip. `dataControlBind` now
+decides the bind version and the primary threshold per interface, and
+`TestDataControlBind` pins the table without needing a compositor.

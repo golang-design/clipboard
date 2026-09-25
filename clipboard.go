@@ -162,8 +162,9 @@ the compositor exposes a data-control manager (ext-data-control-v1 or
 wlr-data-control-unstable-v1), Init selects the Wayland backend, which needs
 no X server. Otherwise the package falls back to X11 — under a compositor
 without data-control that means the XWayland bridge, as before. FromPrimary
-needs version 2 of the data-control manager, which is where the primary
-selection was added; under an older one a primary read returns nil.
+works with ext-data-control-v1, and with version 2 or later of
+wlr-data-control, which is where that protocol added the primary selection;
+under an older one a primary read returns nil.
 */
 package clipboard // import "golang.design/x/clipboard"
 
