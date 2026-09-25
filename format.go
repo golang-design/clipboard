@@ -13,8 +13,9 @@ import (
 	"sync"
 )
 
-// ErrNoData is returned by ReadAs when the clipboard holds no data in the
-// requested format.
+// ErrNoData is returned by Read, ReadAs and ReadFiles when the clipboard holds
+// nothing in the requested format. It is the ordinary "nothing to paste" case,
+// not a failure to reach the clipboard.
 var ErrNoData = errors.New("clipboard: no data available for the given format")
 
 // The custom-format registry maps a portable MIME-type string to an opaque
@@ -132,16 +133,12 @@ func normalizeFormats(in []Format) []Format {
 	return append(out, custom...)
 }
 
-// ReadAs reads the clipboard contents for the format f and decodes them into a
-// typed value with decode. It returns the zero value of T and ErrNoData when
-// the clipboard holds nothing in that format, or the zero value and decode's
-// error when decoding fails.
+// ReadAs reads the clipboard in format f and decodes it with decode:
 //
-// ReadAs relocates the typed-decode idea to where Go generics actually compose
-// — a free helper over Read — instead of a heterogeneous registry that would
-// have to erase every decode function to any. It is also the seam where an
-// error-returning, capability-aware read path can grow without changing the
-// byte-oriented Read.
+//	doc, err := clipboard.ReadAs(ctx, html, parseHTML) // parseHTML: func([]byte) (*Node, error)
+//
+// It returns the zero value of T and ErrNoData when the clipboard holds nothing
+// in that format, or the zero value and decode's error when decoding fails.
 func ReadAs[T any](ctx context.Context, f Format, decode func([]byte) (T, error), opts ...Option) (T, error) {
 	var zero T
 	buf, err := Read(ctx, f, opts...)
