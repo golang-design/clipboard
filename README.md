@@ -8,7 +8,7 @@ import "golang.design/x/clipboard"
 
 ## Features
 
-- Cross platform supports: **macOS, Linux (X11 and Wayland), Windows, BSD (X11), iOS, Android, and the browser (js/wasm, text only)**
+- Cross platform supports: **macOS, Linux (X11 and Wayland), Windows, FreeBSD (X11 and Wayland), OpenBSD/NetBSD (X11), iOS, Android, and the browser (js/wasm, text only)**
 - **Cgo-free on desktop** (macOS, Linux, Windows, BSD) — no C toolchain at build time, no `libX11`/`libwayland` at runtime
 - Copy/paste UTF-8 text
 - Copy/paste PNG-encoded images (Desktop-only); `Write` also accepts other encodings when their decoder is registered
@@ -179,8 +179,7 @@ clipboard.WriteAll(ctx,
 
 Calling `Write` twice does *not* do this: every write replaces the whole
 clipboard, so only the last format would survive. `WriteAll` puts them all on
-in one transaction. It works on macOS, Windows, Linux/X11, BSD/X11 and
-Linux/Wayland; on iOS, Android and CGO-disabled builds only the most preferred
+in one transaction. It works on macOS, Windows, X11 and Wayland; on iOS, Android and CGO-disabled builds only the most preferred
 item is published.
 
 You can ignore the returning channel if you don't need this type of
@@ -241,7 +240,7 @@ this library but is not necessarily understood by other applications.
 Custom-format support is per platform:
 
 - **macOS, Windows, Linux/X11, BSD/X11:** full read/write/watch round-trip.
-- **Linux/Wayland (data-control):** read/write interoperate with other apps;
+- **Wayland (data-control):** read/write interoperate with other apps;
   a process does not observe its *own* just-set custom selection (a
   data-control limitation).
 - **iOS, Android, and CGO-disabled builds:** `Register` works, but `Read`
@@ -268,8 +267,8 @@ for _, f := range formats {
 }
 ```
 
-`Formats` discovers types on the desktop backends (macOS, Windows, Linux/X11,
-BSD/X11, and Linux/Wayland); on iOS, Android, and CGO-disabled builds it returns
+`Formats` discovers types on the desktop backends (macOS, Windows, X11 and
+Wayland); on iOS, Android, and CGO-disabled builds it returns
 an empty slice.
 
 ## Demos
@@ -339,9 +338,11 @@ accessing system clipboards, but here are a few details you might need to know.
    to X11 (via XWayland under Wayland). Older compositors without data-control
    keep working through XWayland.
  - FreeBSD/OpenBSD/NetBSD: no Cgo, no build dependency. They share Linux's
-   pure-Go X11 backend (no `libX11`); a running X server is required at runtime.
-   FreeBSD and OpenBSD are verified to build in CI; NetBSD is best-effort and
-   untested.
+   pure-Go X11 and Wayland backends and pick between them the same way: Wayland
+   when `WAYLAND_DISPLAY` is set and the compositor offers data-control (e.g.
+   Sway, Hyprland or KDE Plasma from FreeBSD packages), X11 otherwise. CI runs
+   the test suite under Wayland on FreeBSD and builds OpenBSD; the Wayland path
+   is untested on OpenBSD, and NetBSD is best-effort and untested.
 - Windows: no Cgo, no dependency
 - iOS/Android: collaborate with [`gomobile`](https://golang.org/x/mobile)
 
