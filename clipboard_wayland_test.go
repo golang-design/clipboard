@@ -4,7 +4,7 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build linux && !android
+//go:build (linux || freebsd || openbsd || netbsd) && !android
 
 package clipboard
 
@@ -19,9 +19,9 @@ import (
 
 // TestWaylandDiscoverGlobals verifies the wire core can connect to a Wayland
 // compositor and discover the globals the data-control backend needs: a seat
-// and a data-control manager. It runs under the headless sway compositor in CI
-// (hack/test-wayland.sh / the wayland_test job) and skips when not in a Wayland
-// session.
+// and a data-control manager. It runs under the headless sway compositor in CI,
+// on Linux and on FreeBSD (hack/test-wayland.sh / the wayland_test and
+// freebsd_wayland_test jobs), and skips when not in a Wayland session.
 func TestWaylandDiscoverGlobals(t *testing.T) {
 	if os.Getenv("WAYLAND_DISPLAY") == "" {
 		t.Skip("not a Wayland session (WAYLAND_DISPLAY unset)")

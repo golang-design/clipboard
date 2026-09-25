@@ -121,8 +121,8 @@ Besides the built-in FmtText and FmtImage, Register maps a MIME type to a
 custom Format token usable with Read, Write, and Watch. Custom formats are
 raw passthrough: the exact bytes are exchanged under that MIME type with no
 conversion. Use ReadAs to decode into a typed value. Custom formats are
-supported on the desktop backends (macOS, Windows, Linux/X11, BSD/X11, and
-Linux/Wayland for cross-application exchange); on iOS, Android, and
+supported on the desktop backends (macOS, Windows, X11, and Wayland for
+cross-application exchange); on iOS, Android, and
 CGO-disabled builds they degrade gracefully like the rest of the API.
 
 To discover what is currently on the clipboard, Formats reports the available
@@ -156,7 +156,8 @@ copies. Init still reports success, because from the process's own point of
 view the clipboard is available. Run the clipboard work in a process inside
 the interactive session instead.
 
-Wayland sessions are supported natively: when WAYLAND_DISPLAY is set and
+Wayland sessions are supported natively, on Linux and the BSDs (tested on
+FreeBSD): when WAYLAND_DISPLAY is set and
 the compositor exposes a data-control manager (ext-data-control-v1 or
 wlr-data-control-unstable-v1), Init selects the Wayland backend, which needs
 no X server. Otherwise the package falls back to X11 — under a compositor

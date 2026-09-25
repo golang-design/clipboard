@@ -215,3 +215,13 @@ sway in CI against independent `wl-copy`/`wl-paste` clients.
 - **Custom formats + `Formats()` enumeration added later** (#131/#139), outside
   the original phases — `wlEnumerateFormats` maps offered MIME types to Format
   tokens, registering custom types on demand.
+
+**Later: the BSDs (#173).** Nothing in the backend turned out to be
+Linux-specific — it needs a unix socket, `SCM_RIGHTS` and a pipe, which Go's
+`syscall` package provides on the BSDs too — so it was renamed from
+`clipboard_wayland_linux.go` to `clipboard_wayland.go` and tagged like the X11
+backend, and `clipboard_bsd.go` dispatches between the two as `clipboard_linux.go`
+does. A `freebsd_wayland_test` job runs the whole suite under headless sway in
+a FreeBSD VM. That sway (1.12) prefers `ext_data_control_manager_v1`, so it is
+also the first CI run to exercise the `ext` path; Ubuntu's sway offers only the
+wlroots manager.

@@ -8,8 +8,17 @@
 
 package clipboard_test
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
-// The BSDs share the X11 enumeration with Linux. CI only builds (no X server),
-// so this exercises compilation; it runs the round-trip locally on a BSD/X11.
-func TestFormatsEnumerate(t *testing.T) { enumerateRoundTrip(t) }
+// The BSDs share the X11 and Wayland enumeration with Linux. CI has no X server
+// on a BSD, so the X11 round-trip runs locally on a BSD/X11; under Wayland it is
+// covered cross-process instead, as on Linux.
+func TestFormatsEnumerate(t *testing.T) {
+	if os.Getenv("WAYLAND_DISPLAY") != "" {
+		t.Skip("Wayland enumeration is covered cross-process")
+	}
+	enumerateRoundTrip(t)
+}

@@ -4,7 +4,7 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build linux && !android
+//go:build (linux || freebsd || openbsd || netbsd) && !android
 
 package clipboard
 
@@ -14,6 +14,10 @@ package clipboard
 // the foundation for the data-control read/write/watch paths added in later
 // phases. Phase 2 covers connecting and discovering the advertised globals
 // (the seat and the data-control manager).
+//
+// Nothing here is Linux-specific: a unix socket, SCM_RIGHTS and a pipe are all
+// it asks of the OS, so it is shared by Linux and the BSDs, like the X11
+// backend (#173).
 
 import (
 	"bytes"

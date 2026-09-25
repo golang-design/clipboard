@@ -4,17 +4,19 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-// NOTE: FreeBSD and OpenBSD are verified to build in CI. NetBSD shares the
-// same pure-Go X11 backend and is included on a best-effort basis, but it is
-// not covered by CI and has not been runtime-tested.
+// NOTE: FreeBSD and OpenBSD are verified to build in CI, and the Wayland
+// backend is exercised on FreeBSD under a headless sway compositor. NetBSD
+// shares the same pure-Go backends and is included on a best-effort basis, but
+// it is not covered by CI and has not been runtime-tested.
 
 //go:build (openbsd || freebsd || netbsd) && !android
 
 package clipboard
 
-// BSD clipboard dispatch. It uses the shared pure-Go X11 backend
-// (clipboard_x11.go), so it needs no Cgo and no libX11. The BSDs have no native
-// Wayland backend here, so this dispatches only to X11.
+// BSD clipboard dispatch. It uses the pure-Go backends shared with Linux: the
+// native Wayland backend (clipboard_wayland.go) when a data-control manager is
+// present, otherwise the X11 backend (clipboard_x11.go). Neither needs Cgo,
+// libX11 or libwayland (#173).
 
 import (
 	"bytes"
@@ -33,19 +35,33 @@ it. Then this package should be ready to use.
 `
 
 func initialize() error {
+	// Prefer the native Wayland backend when running under a Wayland session
+	// that exposes a data-control manager, as on Linux. Fall back to X11
+	// otherwise (including Wayland sessions whose compositor lacks
+	// data-control, via XWayland).
+	if wlAvailable() {
+		useWayland = true
+		return nil
+	}
 	if err := x11Test(); err != nil {
 		return fmt.Errorf(helpmsg, errUnavailable)
 	}
 	return nil
 }
 
-// enumerateFormats reports the formats currently on the clipboard via the shared
-// X11 TARGETS enumeration.
+// enumerateFormats reports the formats currently on the clipboard, via the
+// Wayland data-control offer or the X11 TARGETS list.
 func enumerateFormats(ctx context.Context, sel selection) []Format {
+	if useWayland {
+		return wlEnumerateFormats(sel)
+	}
 	return x11EnumerateFormats(ctx, sel)
 }
 
 func read(ctx context.Context, sel selection, t Format) (buf []byte, err error) {
+	if useWayland {
+		return wlRead(sel, t)
+	}
 	target, ok := x11TargetFor(t)
 	if !ok {
 		return nil, errUnsupported
@@ -55,10 +71,16 @@ func read(ctx context.Context, sel selection, t Format) (buf []byte, err error) 
 }
 
 func writeAll(ctx context.Context, sel selection, items []Item, loops int) (<-chan struct{}, error) {
+	if useWayland {
+		return wlWriteAll(sel, items, loops)
+	}
 	return x11WritePayloads(sel, items, loops)
 }
 
 func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
+	if useWayland {
+		return wlWatch(ctx, sel, t)
+	}
 	recv := make(chan []byte, 1)
 	ti := time.NewTicker(time.Second)
 	last, _ := Read(ctx, t, withSelection(sel))
