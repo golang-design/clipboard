@@ -1,20 +1,17 @@
 # gclip-gui
 
-This is a very basic example for verification purpose that demonstrates
-how the [golang.design/x/clipboard](https://golang.design/x/clipboard)
-can interact with macOS/Linux/Windows/Android/iOS system clipboard.
+A small demo app for checking that
+[golang.design/x/clipboard](https://golang.design/x/clipboard) works with the
+system clipboard on macOS, Linux, Windows, Android and iOS.
 
-The gclip GUI application writes a string to the system clipboard
-periodically then reads it back and renders it if possible.
+Every second it writes a string to the clipboard, reads it back, and shows
+what it read.
 
-Because of the system limitation, on mobile devices, only string data is
-supported at the moment. Hence, one must use clipboard.FmtText; other formats
-are unsupported there (Read returns nil and Write is a no-op).
+On iOS and Android only text is supported, so the app uses `clipboard.FmtText`;
+other formats return `ErrUnsupported` there.
 
-This example is intentded as cross platform application. To build it, one
-must use [gomobile](https://golang.org/x/mobile). You may follow the instructions
-provided in the [GoMobile wiki](https://github.com/golang/go/wiki/Mobile) page.
-
+It is built with [gomobile](https://golang.org/x/mobile). To set that up, see
+the [Go Mobile wiki](https://github.com/golang/go/wiki/Mobile).
 
 - For desktop: `go build -o gclip-gui`
 - For Android: `gomobile build -v -target=android -o gclip-gui.apk`

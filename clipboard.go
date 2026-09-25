@@ -5,166 +5,112 @@
 // Written by Changkun Ou <changkun.de>
 
 /*
-Package clipboard provides cross platform clipboard access and supports
-macOS/Linux/Windows/BSD/Android/iOS platform. Before interacting with the
-clipboard, one must call Init to assert if it is possible to use this
-package:
+Package clipboard copies and pastes from Go, the same way on macOS, Windows,
+Linux, the BSDs, iOS, Android and the browser.
 
-	err := clipboard.Init()
-	if err != nil {
-		panic(err)
+Call Init once, before anything else. It fails if there is no clipboard to talk
+to, such as on a Linux server with no display:
+
+	if err := clipboard.Init(); err != nil {
+		log.Fatal(err)
 	}
 
-The most common operations are `Read` and `Write`. To use them:
+# Copy and paste
 
-	// write/read text format data of the clipboard, and
-	// the byte buffer regarding the text are UTF8 encoded.
-	clipboard.Write(ctx, clipboard.FmtText, []byte("text data"))
-	clipboard.Read(ctx, clipboard.FmtText)
+	clipboard.Write(ctx, clipboard.FmtText, []byte("hello")) // copy
+	b, err := clipboard.Read(ctx, clipboard.FmtText)        // paste
 
-	// write/read image format data of the clipboard, and
-	// the byte buffer regarding the image are PNG encoded.
-	clipboard.Write(ctx, clipboard.FmtImage, []byte("image data"))
-	clipboard.Read(ctx, clipboard.FmtImage)
+There are three built-in formats: FmtText is UTF-8 text, FmtImage is a PNG
+image, and FmtFiles is a list of file paths. When a call fails, the error says
+why:
 
-FmtImage is PNG: the clipboard serves images PNG-encoded because PNG
-carries an alpha channel, which other graphical software relies on.
-Read(FmtImage) therefore always returns PNG bytes. Write(FmtImage, ...)
-takes PNG as-is and normalizes other encodings to PNG when the program
-has registered the matching decoder, so a JPEG or WebP input still
-arrives on the clipboard as PNG:
+	switch {
+	case errors.Is(err, clipboard.ErrNoData):      // nothing on the clipboard in this format
+	case errors.Is(err, clipboard.ErrUnavailable): // no clipboard to reach
+	case errors.Is(err, clipboard.ErrUnsupported): // this platform cannot do that
+	}
 
-	import _ "image/jpeg" // register the decoder you feed Write
+# Images
+
+Read(FmtImage) always returns PNG. Write(FmtImage, ...) takes PNG as it is, and
+converts other encodings to PNG once their decoder is imported:
+
+	import _ "image/jpeg"
 
 	clipboard.Write(ctx, clipboard.FmtImage, jpegBytes) // stored as PNG
 
-To move image bytes that must not be transcoded — a JPEG that stays a
-JPEG, an SVG, a WebP, a camera raw — register that MIME type as a custom
-format instead of using FmtImage; custom formats are raw passthrough:
+To keep the bytes unchanged — a JPEG that stays a JPEG — use a custom format
+instead.
 
-	jpg := clipboard.Register("image/jpeg")
-	clipboard.Write(ctx, jpg, jpegBytes)  // exact bytes, no conversion
+# Custom formats
 
-To copy or paste files — what a file manager puts on the clipboard when you
-press Ctrl+C on a selection — use WriteFiles and ReadFiles:
-
-	clipboard.WriteFiles(ctx, []string{"/home/me/report.pdf", "/home/me/notes.txt"})
-
-	paths, _ := clipboard.ReadFiles(ctx)
-	for _, path := range paths {
-		println(path)
-	}
-
-Each platform stores a file list its own way and FmtFiles translates between
-them, so the same code interoperates with Explorer, Finder, Nautilus and
-Dolphin. See FmtFiles for the details.
-
-To publish several representations of the same content at once — plain text
-and HTML from one copy, so the destination takes whichever it understands
-best — use WriteAll. Calling Write twice does not do this: each write
-replaces the whole clipboard, so only the last format would survive.
+Register turns any MIME type into a Format. Its bytes go on the clipboard
+exactly as given, with no conversion:
 
 	html := clipboard.Register("text/html")
+	clipboard.Write(ctx, html, []byte("<b>hi</b>"))
+	b, err := clipboard.Read(ctx, html)
+
+ReadAs reads and decodes in one step. Formats lists what is on the clipboard,
+and Format.MIME names each entry.
+
+# Several formats in one copy
+
+WriteAll puts several representations on the clipboard at once, most preferred
+first, and the app you paste into takes the best one it understands. Calling
+Write twice does not do this: each write replaces the whole clipboard.
+
 	clipboard.WriteAll(ctx,
 		clipboard.Item{Format: html, Bytes: []byte("<b>hi</b>")},
 		clipboard.Item{Format: clipboard.FmtText, Bytes: []byte("hi")},
 	)
 
-On X11 and Wayland there are two clipboards. The primary selection holds
-whatever was last selected with the mouse and is pasted with the middle
-button, independently of the Ctrl+C clipboard. Reach it with FromPrimary,
-which every operation accepts:
+# Files
 
-	sel, err := clipboard.Read(ctx, clipboard.FmtText, clipboard.FromPrimary())
-	ch := clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
+WriteFiles and ReadFiles copy and paste files the way a file manager does, so
+they work with Finder, Explorer, Nautilus and Dolphin:
 
-Windows and macOS have no second clipboard, so there a primary read returns
-nil and a primary write is a no-op rather than touching the clipboard.
+	clipboard.WriteFiles(ctx, []string{"/home/me/report.pdf"})
+	paths, err := clipboard.ReadFiles(ctx)
 
-In addition, `clipboard.Write` returns a channel that can receive an
-empty struct as a signal, which indicates the corresponding write call
-to the clipboard is outdated, meaning the clipboard has been overwritten
-by others and the previously written data is lost. For instance:
+# Watching for changes
 
-	changed, err := clipboard.Write(ctx, clipboard.FmtText, []byte("text data"))
+Write returns a channel that fires once, when something else replaces what you
+wrote. Watch reports every change until ctx is canceled:
 
-	select {
-	case <-changed:
-		println(`"text data" is no longer available from clipboard.`)
+	for data := range clipboard.Watch(ctx, clipboard.FmtText) {
+		fmt.Println(string(data.Bytes))
 	}
 
-You can ignore the returning channel if you don't need this type of
-notification. Furthermore, when you need more than just knowing whether
-clipboard data is changed, use the watcher API:
+# Linux and the BSDs
 
-	ch := clipboard.Watch(context.TODO(), clipboard.FmtText)
-	for data := range ch {
-		// print out clipboard data whenever it is changed
-		println(string(data.Bytes))
-	}
+X11 and Wayland have a second clipboard, the primary selection: whatever was
+last selected with the mouse, pasted with the middle button. Pass FromPrimary
+to any call to use it. Loops removes a write after it has been pasted a given
+number of times. Both work only on X11 and Wayland.
 
-Watch is variadic and each value is tagged with its format, so a single
-call can observe more than one format at once (passing no format watches
-all supported ones):
+Init chooses the backend by itself: Wayland when WAYLAND_DISPLAY is set and the
+compositor offers a data-control protocol (ext-data-control-v1 or
+wlr-data-control-unstable-v1), X11 otherwise — which, under an older Wayland
+compositor, means XWayland. Neither needs Cgo, libX11 or libwayland. Wayland is
+tested on Linux and FreeBSD.
 
-	ch := clipboard.Watch(context.TODO())
-	for data := range ch {
-		switch data.Format {
-		case clipboard.FmtText:
-			println("text:", string(data.Bytes))
-		case clipboard.FmtImage:
-			println("image bytes:", len(data.Bytes))
-		}
-	}
+On X11 and Wayland the program that writes serves the data to every app that
+pastes, so the data is gone once the program exits, unless a clipboard manager
+kept a copy. Keep the program running for as long as the data should be
+pasteable.
 
-Besides the built-in FmtText and FmtImage, Register maps a MIME type to a
-custom Format token usable with Read, Write, and Watch. Custom formats are
-raw passthrough: the exact bytes are exchanged under that MIME type with no
-conversion. Use ReadAs to decode into a typed value. Custom formats are
-supported on the desktop backends (macOS, Windows, X11, and Wayland for
-cross-application exchange); on iOS, Android, and
-CGO-disabled builds they degrade gracefully like the rest of the API.
+# Other platforms
 
-To discover what is currently on the clipboard, Formats reports the available
-formats (registering any custom MIME types it finds on demand), and
-Format.MIME reports a token's MIME identity. Enumeration works on the desktop
-backends and returns an empty slice on iOS, Android, and CGO-disabled builds.
+On Windows, a program running as a service gets a clipboard of its own, which
+the logged-in user never sees. Do the clipboard work in a process inside the
+user's session instead.
 
-# Platform-specific caveats
+In the browser only text works, the page must be served over https, and a read
+is allowed only after a user action such as a click. Call Read and Write from a
+goroutine that the event handler starts, not in the handler itself.
 
-On Linux/X11 the clipboard follows the X11 selection-ownership model:
-the process that calls Write owns the selection and serves its content
-to other applications on demand. This means the written data only stays
-available for as long as the writing process is alive, unless a
-clipboard manager is running to take over ownership when the process
-exits. In practice plain text often survives because most clipboard
-managers cache it, whereas larger image data is usually dropped. To keep
-data available after your program exits, keep the process running (the
-channel returned by Write reports when the data is no longer needed) or
-rely on a clipboard manager.
-
-Both X11 selections are reachable: the CLIPBOARD one by default, and PRIMARY
-(middle-click paste) with FromPrimary. SECONDARY is not exposed, since
-nothing uses it.
-
-On Windows, a program running as a service does not share the logged-in
-user's clipboard. Services run in Session 0 on their own non-interactive
-window station, and a clipboard belongs to a window station: the service
-gets a working clipboard that nothing else can see, so Read and Write
-succeed among themselves while Watch never fires for anything the user
-copies. Init still reports success, because from the process's own point of
-view the clipboard is available. Run the clipboard work in a process inside
-the interactive session instead.
-
-Wayland sessions are supported natively, on Linux and the BSDs (tested on
-FreeBSD): when WAYLAND_DISPLAY is set and
-the compositor exposes a data-control manager (ext-data-control-v1 or
-wlr-data-control-unstable-v1), Init selects the Wayland backend, which needs
-no X server. Otherwise the package falls back to X11 — under a compositor
-without data-control that means the XWayland bridge, as before. FromPrimary
-works with ext-data-control-v1, and with version 2 or later of
-wlr-data-control, which is where that protocol added the primary selection;
-under an older one a primary read returns nil.
+On iOS and Android only text works.
 */
 package clipboard // import "golang.design/x/clipboard"
 
@@ -202,13 +148,9 @@ var (
 )
 
 // Option configures a clipboard operation. Format and Item are Options too, so
-// one variadic argument list carries both what an operation acts on and how:
+// one argument list says both what an operation acts on and how:
 //
 //	clipboard.Watch(ctx, clipboard.FmtText, clipboard.FromPrimary())
-//
-// That is why Option is an interface rather than a function type — Watch and
-// WriteAll had already spent their variadic slot on Format and Item, and Go
-// allows only one.
 type Option interface {
 	apply(*config)
 }
@@ -252,10 +194,13 @@ func (o optionFunc) apply(c *config) { o(c) }
 //
 //	sel, err := clipboard.Read(ctx, clipboard.FmtText, clipboard.FromPrimary())
 //
+// On Wayland the compositor must offer ext-data-control-v1, or version 2 or
+// later of wlr-data-control; current compositors do.
+//
 // The primary selection exists only on X11 and Wayland. Elsewhere — Windows,
-// macOS, iOS, Android, CGO-disabled builds — a read returns nil and a write is
-// a no-op. A write is deliberately not redirected to the ordinary clipboard:
-// that would destroy whatever the user had copied.
+// macOS, iOS, Android, the browser — Read and Write return ErrUnsupported and
+// Watch delivers nothing. A write is deliberately not redirected to the
+// ordinary clipboard: that would destroy whatever the user had copied.
 func FromPrimary() Option { return optionFunc(func(c *config) { c.sel = selPrimary }) }
 
 // withSelection carries an already-resolved selection into a public call. The
@@ -310,7 +255,7 @@ type Format int
 // WriteAll can accept formats and options in the same argument list.
 func (f Format) apply(c *config) { c.formats = append(c.formats, f) }
 
-// All sorts of supported clipboard data
+// The built-in formats.
 const (
 	// FmtText indicates plain text clipboard format. Its bytes are UTF-8
 	// encoded in both directions.
@@ -348,22 +293,19 @@ var (
 	initError error
 )
 
-// Init initializes the clipboard package. It returns an error
-// if the clipboard is not available to use. This may happen if the
-// target system lacks required dependency, such as libx11-dev in X11
-// environment. For example,
+// Init prepares the package and reports whether there is a clipboard to use.
+// Call it once, before any other function; calling it again returns the same
+// result.
 //
-//	err := clipboard.Init()
-//	if err != nil {
-//		panic(err)
+//	if err := clipboard.Init(); err != nil {
+//		log.Fatal(err)
 //	}
 //
-// If Init returns an error because of a runtime dependency failure
-// (such as a missing libx11-dev), any subsequent Read/Write/Watch call
-// may result in an unrecoverable panic. In a CGO-disabled build
-// (CGO_ENABLED=0), Init returns an error and Read/Write/Watch degrade
-// gracefully instead of panicking: Read and Write return nil, and
-// Watch returns a closed channel.
+// It fails, with an error wrapping ErrUnavailable, when there is nothing to
+// talk to: on Linux and the BSDs, neither a Wayland compositor offering
+// data-control nor an X server; in the browser, no navigator.clipboard; and on
+// a platform that needs Cgo, a build with CGO_ENABLED=0. After a failed Init,
+// Read and Write return errors and Watch delivers nothing.
 func Init() error {
 	initOnce.Do(func() {
 		initError = initialize()
@@ -371,15 +313,14 @@ func Init() error {
 	return initError
 }
 
-// Read returns a chunk of bytes of the clipboard data if it presents
-// in the desired format t presents. Otherwise, it returns nil.
+// Read returns what is on the clipboard in format t, or ErrNoData if the
+// clipboard holds nothing in that format.
+//
+// The bytes are in the format's encoding: UTF-8 for FmtText, PNG for FmtImage
+// whatever the copying app used, and a text/uri-list for FmtFiles. A custom
+// format from Register comes back exactly as it sits on the clipboard.
 //
 // Pass FromPrimary to read the primary selection instead of the clipboard.
-//
-// The bytes are encoded the way the format defines: UTF-8 for FmtText and
-// PNG for FmtImage, whatever encoding the source application used. A custom
-// format registered with Register is raw passthrough, so Read returns its
-// bytes exactly as they sit on the clipboard.
 func Read(ctx context.Context, t Format, opts ...Option) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -403,21 +344,20 @@ func Read(ctx context.Context, t Format, opts ...Option) ([]byte, error) {
 	return buf, nil
 }
 
-// Write writes a given buffer to the clipboard in a specified format.
+// Write puts buf on the clipboard in format t, replacing what was there.
 //
-// The data is on the clipboard as soon as Write returns; consuming the
-// returned channel is optional. That channel receives a single empty
-// struct, and is then closed, only when the clipboard is later overwritten
-// by another writer (detected via the platform clipboard sequence number).
-// If nothing else ever overwrites the clipboard, the channel never fires —
-// so do not block on it expecting it to report that this write completed.
+// The data is on the clipboard as soon as Write returns. The returned channel
+// is optional: it receives one value, and is then closed, when something else
+// later replaces the clipboard. If nothing ever does, it never fires, so do not
+// wait on it to learn that the write finished.
 //
-// If format t indicates an image, buf is normalized to PNG before being placed
-// on the clipboard. PNG input is stored as-is; other formats are accepted if the
-// program has registered the matching image decoder (e.g. blank-import
-// _ "image/jpeg" or _ "golang.org/x/image/webp"), and undecodable input passes
-// through unchanged. The clipboard therefore always serves PNG, regardless of
-// the input encoding.
+// For FmtImage, buf is converted to PNG first. PNG is stored as it is; another
+// encoding is converted if the program has imported its decoder (for example
+// _ "image/jpeg" or _ "golang.org/x/image/webp"); anything else is stored
+// unchanged.
+//
+// Pass FromPrimary to write the primary selection instead, or Loops to limit
+// how many times the data is pasted.
 func Write(ctx context.Context, t Format, buf []byte, opts ...Option) (<-chan struct{}, error) {
 	return WriteAll(ctx, append([]Option{Item{Format: t, Bytes: buf}}, opts...)...)
 }
@@ -458,13 +398,12 @@ func (i Item) apply(c *config) { c.items = append(c.items, i) }
 // do the same thing: every write replaces the whole clipboard, so only the last
 // one would survive.
 //
-// The returned channel behaves as Write's does: it receives a single empty
-// struct, and is then closed, only when the whole set is later replaced by
-// another writer. WriteAll returns nil if it is given no items, or if the write
-// fails.
+// The returned channel behaves as Write's does: it receives one value, and is
+// then closed, when something else later replaces the whole set. Given no
+// items, WriteAll does nothing and returns a nil channel and a nil error.
 //
 // Multi-representation clipboards are a desktop feature. On iOS, Android and in
-// CGO-disabled builds only the most preferred item is published.
+// the browser only the most preferred item is published.
 //
 // Pass FromPrimary to publish to the primary selection instead, or Loops to
 // limit how many times the set is served.
@@ -579,15 +518,16 @@ type Data struct {
 	Bytes  []byte
 }
 
-// Watch returns a receive-only channel that receives the clipboard data
-// whenever any change of clipboard data in one of the desired formats
-// happens. Each received value carries the format it was detected in, so a
-// single Watch call can observe multiple formats at once. If no format is
-// given, all built-in formats (FmtText, FmtImage and FmtFiles) are observed.
+// Watch reports each change to the clipboard in the given formats until ctx is
+// canceled, and then closes the channel. Each value carries the format it was
+// seen in, so one Watch can observe several formats; with none given, it
+// observes FmtText, FmtImage and FmtFiles.
+//
+//	for data := range clipboard.Watch(ctx, clipboard.FmtText) {
+//		fmt.Println(string(data.Bytes))
+//	}
 //
 // Pass FromPrimary to watch the primary selection instead of the clipboard.
-//
-// The returned channel will be closed once the given context is canceled.
 func Watch(ctx context.Context, opts ...Option) <-chan Data {
 	c := newConfig(opts)
 	t := c.formats
