@@ -47,6 +47,35 @@ func TestWaylandDiscoverGlobals(t *testing.T) {
 		iface, g.name, g.version, len(globals))
 }
 
+// TestDataControlBind pins which data-control versions carry the primary
+// selection. It needs no compositor, so it guards the rule on every Linux and
+// BSD run — including against the compositors CI does not have, since each one
+// offers only some of these interfaces and versions.
+//
+// ext-data-control has had the primary selection since version 1; only the
+// wlroots protocol gained it later, in version 2. Treating both alike reported
+// the primary selection missing under every compositor offering ext.
+func TestDataControlBind(t *testing.T) {
+	for _, tc := range []struct {
+		iface       string
+		advertised  uint32
+		wantVersion uint32
+		wantPrimary bool
+	}{
+		{"ext_data_control_manager_v1", 1, 1, true},
+		{"ext_data_control_manager_v1", 3, 1, true}, // capped at what we understand
+		{"zwlr_data_control_manager_v1", 1, 1, false},
+		{"zwlr_data_control_manager_v1", 2, 2, true},
+		{"zwlr_data_control_manager_v1", 5, 2, true},
+	} {
+		v, primary := dataControlBind(tc.iface, tc.advertised)
+		if v != tc.wantVersion || primary != tc.wantPrimary {
+			t.Errorf("dataControlBind(%s, %d) = (%d, %v), want (%d, %v)",
+				tc.iface, tc.advertised, v, primary, tc.wantVersion, tc.wantPrimary)
+		}
+	}
+}
+
 // TestWaylandReadText verifies the data-control read path: it sets the
 // clipboard with wl-copy (an independent client) and reads it back through the
 // backend. Runs under headless sway in CI; skips off-Wayland or without

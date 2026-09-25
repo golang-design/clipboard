@@ -74,9 +74,9 @@ type wlConn struct {
 	nextID uint32
 	rbuf   []byte
 	fds    []int
-	// dataControlVersion is the interface version the manager was bound at,
-	// which decides whether the primary selection is reachable.
-	dataControlVersion uint32
+	// primary reports whether the bound data-control manager carries the
+	// primary selection (see dataControlBind).
+	primary bool
 }
 
 // wlConnect dials the Wayland display socket.
@@ -311,9 +311,25 @@ const (
 	srcEvtCancelled = 1
 )
 
-// dataControlVersion is the interface version to bind. Version 2 adds the
-// primary selection; anything below it can still serve the ordinary clipboard.
-const dataControlVersion = 2
+// dataControlBind picks the version to bind a data-control manager at — the
+// newest the compositor advertises, capped at the newest this package
+// understands — and reports whether that version carries the primary
+// selection.
+//
+// The two protocols differ here, and the difference matters: the wlroots one
+// added the primary selection in version 2, whereas ext-data-control has had it
+// since version 1, its only version so far. A single "version 2 or later" rule
+// wrongly reports the primary selection missing under every compositor that
+// offers ext — sway 1.12, KWin, GNOME 49 — because ext is the one preferred.
+// Anything below the threshold can still serve the ordinary clipboard.
+func dataControlBind(iface string, advertised uint32) (version uint32, primary bool) {
+	newest, primarySince := uint32(2), uint32(2) // zwlr_data_control_manager_v1
+	if iface == "ext_data_control_manager_v1" {
+		newest, primarySince = 1, 1
+	}
+	version = min(advertised, newest)
+	return version, version >= primarySince
+}
 
 // wlSelectionEvt is the device event announcing the current offer for sel.
 func wlSelectionEvt(sel selection) uint16 {
@@ -645,13 +661,9 @@ func wlConnectDevice() (w *wlConn, managerID, deviceID uint32, err error) {
 		return nil, 0, 0, errUnavailable
 	}
 	// Bind the highest version the compositor advertises, capped at what this
-	// package understands. Below dataControlVersion the primary selection is
-	// unavailable, which wlPrimaryAvailable reports without failing the
-	// ordinary clipboard.
-	bindVersion := mgr.version
-	if bindVersion > dataControlVersion {
-		bindVersion = dataControlVersion
-	}
+	// package understands. Where that version lacks the primary selection,
+	// supportsPrimary says so without failing the ordinary clipboard.
+	bindVersion, primary := dataControlBind(mgrIface, mgr.version)
 	if managerID, err = w.bind(registryID, mgr.name, mgrIface, bindVersion); err != nil {
 		w.Close()
 		return nil, 0, 0, err
@@ -671,13 +683,13 @@ func wlConnectDevice() (w *wlConn, managerID, deviceID uint32, err error) {
 		w.Close()
 		return nil, 0, 0, err
 	}
-	w.dataControlVersion = bindVersion
+	w.primary = primary
 	return w, managerID, deviceID, nil
 }
 
 // supportsPrimary reports whether the bound data-control interface is new enough
 // for the primary selection.
-func (w *wlConn) supportsPrimary() bool { return w.dataControlVersion >= dataControlVersion }
+func (w *wlConn) supportsPrimary() bool { return w.primary }
 
 // wlWrite sets the clipboard selection to data for the given format and serves
 // paste requests until ownership is lost. It returns a channel that is closed
