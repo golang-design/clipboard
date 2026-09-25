@@ -4,7 +4,7 @@
 //
 // Written by Changkun Ou <changkun.de>
 
-//go:build linux && !android
+//go:build (linux || freebsd || openbsd || netbsd) && !android
 
 package clipboard
 

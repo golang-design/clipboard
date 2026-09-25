@@ -9,8 +9,8 @@
 package clipboard
 
 // Linux clipboard dispatch. Both backends are pure Go: the native Wayland
-// backend (clipboard_wayland_linux.go) when a data-control manager is present,
-// otherwise the X11 backend (clipboard_x11_linux.go). Neither needs Cgo, so the
+// backend (clipboard_wayland.go) when a data-control manager is present,
+// otherwise the X11 backend (clipboard_x11.go). Neither needs Cgo, so the
 // package builds and runs on Linux with CGO_ENABLED=0 and no C toolchain.
 
 import (

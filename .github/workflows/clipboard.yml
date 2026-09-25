@@ -175,3 +175,31 @@ jobs:
         echo "----- go test output -----"
         cat /tmp/res.txt
         grep -q "^EXIT=0$" /tmp/res.txt || { echo "----- sway log -----"; cat /tmp/sway.log; exit 1; }
+  # The same headless-sway run on FreeBSD, where the Wayland backend is shared
+  # with Linux (#173). The BSD build-only jobs above prove it compiles; this
+  # proves it works there — the unix socket, the SCM_RIGHTS fd passing and the
+  # pipes all go through a different kernel. sway comes from FreeBSD packages
+  # and offers the same data-control managers as on Linux.
+  freebsd_wayland_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run the suite under headless sway on FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        usesh: true
+        prepare: |
+          pkg install -y go sway wl-clipboard
+        run: |
+          go version
+          sway --version
+          export XDG_RUNTIME_DIR=/tmp/xdg
+          mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+          export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
+          # As on Linux: run the whole suite as a sway client so the public API
+          # is exercised through the Wayland dispatch, then quit the compositor.
+          printf 'xwayland disable\nexec "go test -count=1 -covermode=atomic -v . > /tmp/res.txt 2>&1; echo EXIT=$? >> /tmp/res.txt; swaymsg exit 2>/dev/null"\n' > /tmp/sway.conf
+          timeout 300 sway -c /tmp/sway.conf >/tmp/sway.log 2>&1 || true
+          echo "----- go test output -----"
+          cat /tmp/res.txt || { echo "----- sway log -----"; cat /tmp/sway.log; exit 1; }
+          grep -q "^EXIT=0$" /tmp/res.txt || { echo "----- sway log -----"; cat /tmp/sway.log; exit 1; }
