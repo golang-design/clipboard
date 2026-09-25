@@ -1,4 +1,4 @@
-# clipboard [![PkgGoDev](https://pkg.go.dev/badge/golang.design/x/clipboard)](https://pkg.go.dev/golang.design/x/clipboard) ![](https://changkun.de/urlstat?mode=github&repo=golang-design/clipboard) ![clipboard](https://github.com/golang-design/clipboard/workflows/clipboard/badge.svg?branch=main)
+# clipboard [![PkgGoDev](https://pkg.go.dev/badge/golang.design/x/clipboard)](https://pkg.go.dev/golang.design/x/clipboard) ![](https://changkun.de/urlstat?mode=github&repo=golang-design/clipboard) [![clipboard](https://github.com/golang-design/clipboard/actions/workflows/clipboard.yml/badge.svg?branch=main)](https://github.com/golang-design/clipboard/actions/workflows/clipboard.yml?query=branch%3Amain)
 
 Copy and paste from Go, the same way on every platform.
 
