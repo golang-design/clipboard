@@ -543,3 +543,25 @@ func clipboard_change_count() int {
 	defer newAutoreleasePool()()
 	return int(objc.ID(class_NSPasteboard).Send(sel_generalPasteboard).Send(sel_changeCount))
 }
+
+// sensitive reports whether the pasteboard carries one of the nspasteboard.org
+// markers for sensitive content (see Sensitive).
+func sensitive(ctx context.Context, sel selection) (bool, error) {
+	if sel == selPrimary {
+		return false, errUnsupported // no primary selection on macOS
+	}
+	defer newAutoreleasePool()()
+	pasteboard := objc.ID(class_NSPasteboard).Send(sel_generalPasteboard)
+	types := pasteboard.Send(sel_types)
+	if types == 0 {
+		return false, nil
+	}
+	n := int(objc.ID(types).Send(sel_count))
+	for i := 0; i < n; i++ {
+		t := objc.ID(types).Send(sel_objectAtIndex, uintptr(i))
+		if containsAny([]string{nsStringGo(objc.ID(t))}, darwinSensitiveTypes...) {
+			return true, nil
+		}
+	}
+	return false, nil
+}

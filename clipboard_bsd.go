@@ -110,3 +110,16 @@ func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	}()
 	return recv
 }
+
+// sensitive reports whether the content was marked sensitive (see Sensitive):
+// by the Wayland offer's MIME types, or the X11 selection's targets.
+func sensitive(ctx context.Context, sel selection) (bool, error) {
+	if useWayland {
+		mimes, err := wlSelectionMIMEs(sel)
+		if err != nil {
+			return false, err
+		}
+		return containsAny(mimes, x11SensitiveTarget), nil
+	}
+	return x11Sensitive(ctx, sel)
+}

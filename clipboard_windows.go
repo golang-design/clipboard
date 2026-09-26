@@ -1163,3 +1163,39 @@ func findProc(dll *syscall.DLL, name string) *syscall.Proc {
 	}
 	return p
 }
+
+// sensitive reports whether the clipboard carries one of the formats Windows
+// uses to keep content out of clipboard history, cloud sync and monitoring
+// tools (see Sensitive).
+func sensitive(ctx context.Context, sel selection) (bool, error) {
+	if sel == selPrimary {
+		return false, errUnsupported // no primary selection on Windows
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := openClipboardRetry(); err != nil {
+		return false, err
+	}
+	defer closeClipboard.Call()
+
+	if id, err := registerFormatName(windowsExcludeFormat); err == nil {
+		if r, _, _ := isClipboardFormatAvailable.Call(id); r != 0 {
+			return true, nil
+		}
+	}
+	// These two opt out only when set to 0; present with any other value,
+	// they allow what they name.
+	for _, name := range windowsOptOutFormats {
+		id, err := registerFormatName(name)
+		if err != nil {
+			continue
+		}
+		if r, _, _ := isClipboardFormatAvailable.Call(id); r == 0 {
+			continue
+		}
+		if b, err := readCustom(id); err == nil && len(b) >= 4 && binary.LittleEndian.Uint32(b) == 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
