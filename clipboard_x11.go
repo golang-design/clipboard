@@ -695,3 +695,14 @@ func (x *x11conn) answerSelectionRequest(req x11wire.SelectionRequestEvent, targ
 	x.send(x11wire.SendSelectionNotify(notify))
 	return served
 }
+
+// x11Sensitive reports whether the selection advertises the target that marks
+// content as sensitive (see Sensitive). Asking for the targets is not a paste,
+// so it consumes none of a Loops limit.
+func x11Sensitive(ctx context.Context, sel selection) (bool, error) {
+	names, err := x11Targets(ctx, sel)
+	if err != nil {
+		return false, err
+	}
+	return containsAny(names, x11SensitiveTarget), nil
+}

@@ -82,6 +82,12 @@ wrote. Watch reports every change until ctx is canceled:
 		fmt.Println(string(data.Bytes))
 	}
 
+# Passwords
+
+Password managers mark what they copy as sensitive. Sensitive reports that
+mark, and so does Data.Sensitive on every value from Watch; a tool that keeps
+or syncs the clipboard should skip such content.
+
 # Linux and the BSDs
 
 X11 and Wayland have a second clipboard, the primary selection: whatever was
@@ -516,6 +522,11 @@ func WriteFiles(ctx context.Context, paths []string, opts ...Option) (<-chan str
 type Data struct {
 	Format Format
 	Bytes  []byte
+	// Sensitive reports that the application that copied this marked it as
+	// sensitive, as password managers do with passwords; see Sensitive. A
+	// tool that keeps or shares what is copied should drop it. It is false
+	// wherever the platform has no such marker.
+	Sensitive bool
 }
 
 // Watch reports each change to the clipboard in the given formats until ctx is
@@ -543,8 +554,12 @@ func Watch(ctx context.Context, opts ...Option) <-chan Data {
 		go func() {
 			defer wg.Done()
 			for b := range in {
+				// Checked once the change is seen, so a value copied and
+				// replaced in the same instant may be judged by its
+				// successor's marker.
+				secret, _ := Sensitive(ctx, withSelection(c.sel))
 				select {
-				case out <- Data{Format: f, Bytes: b}:
+				case out <- Data{Format: f, Bytes: b, Sensitive: secret}:
 				case <-ctx.Done():
 					return
 				}

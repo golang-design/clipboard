@@ -134,3 +134,9 @@ func watch(ctx context.Context, sel selection, t Format) <-chan []byte {
 	}()
 	return recv
 }
+
+// sensitive: this platform has no marker for sensitive content that this
+// package can read (see Sensitive).
+func sensitive(ctx context.Context, sel selection) (bool, error) {
+	return false, errUnsupported
+}

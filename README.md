@@ -80,6 +80,7 @@ FreeBSD (Wayland), and builds for OpenBSD. NetBSD is best-effort.
 | Watch for changes | `Watch` | everywhere except the browser |
 | The middle-click clipboard | `FromPrimary` | X11 and Wayland |
 | Forget after N pastes | `Loops` | X11 and Wayland |
+| Spot passwords from a password manager | `Sensitive`, `Data.Sensitive` | desktop |
 
 Where a feature is missing, the call returns `ErrUnsupported` or does the
 nearest safe thing: `WriteAll` publishes only your first item, `Formats` returns
@@ -271,6 +272,27 @@ and your program never hears about pastes.
 
 Every delivery counts, including a `Read` or `Watch` in your own program, and
 an app that asks for two formats in one paste uses up two.
+
+### Leave passwords alone
+
+Password managers mark the passwords they copy, so that clipboard managers
+and sync tools don't keep them. `Sensitive` tells you whether the current copy
+carries that mark, and every value from `Watch` says it too:
+
+```go
+for data := range clipboard.Watch(ctx, clipboard.FmtText) {
+	if data.Sensitive {
+		continue // a password: don't store or upload it
+	}
+	save(data.Bytes)
+}
+```
+
+It reads the marks password managers actually set: `org.nspasteboard.ConcealedType`
+on macOS, `ExcludeClipboardContentFromMonitorProcessing` on Windows, and
+`x-kde-passwordManagerHint` on X11 and Wayland. iOS, Android and the browser
+have no such mark to read, so there `Sensitive` returns `ErrUnsupported`
+rather than a false "safe".
 
 ## Command-line tool
 
